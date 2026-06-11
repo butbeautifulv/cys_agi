@@ -12,6 +12,21 @@ cp .env.example .env
 |---------|------|-------------|
 | Postgres 16 | 5432 | `postgres` / `password`, DB `cys_agi` |
 | Redis 7 | 6379 | password `password` |
+| Redpanda | 19092 (Kafka), 9644 (admin/metrics) | no auth in local dev |
+
+Kafka/Redpanda is opt-in during Phase 1:
+
+```bash
+USE_KAFKA=true
+KAFKA_BOOTSTRAP_SERVERS=localhost:19092
+```
+
+Smoke check after `docker compose up -d`:
+
+```bash
+docker compose exec redpanda rpk topic list
+docker compose exec redpanda rpk cluster health
+```
 
 ## Режимы работы
 
@@ -19,7 +34,9 @@ cp .env.example .env
 |-------|-------------|-----------|
 | `test` | memory | in-memory fallback |
 | `dev` | Postgres (fallback memory) | Redis or memory |
-| `prod` | Postgres | Redis |
+| `prod` | Postgres | Kafka/Redpanda (`USE_KAFKA=true`) |
+
+Redis remains part of the local stack for rate limiting. Kafka/Redpanda is the production event bus path introduced by the master plan; keep `USE_KAFKA=false` until the Kafka queue and bus connectors are enabled in later P1.2 subphases.
 
 Локально без Docker:
 
