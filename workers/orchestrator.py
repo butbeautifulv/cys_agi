@@ -121,7 +121,10 @@ class WorkerOrchestrator:
         if raw is None:
             return None
         job = WorkerJob.model_validate(raw)
-        return await self.run_job(job)
+        result = await self.run_job(job)
+        if not result.success and hasattr(self.queue, "send_to_dlq"):
+            await self.queue.send_to_dlq(raw, error=result.error)
+        return result
 
     def enqueue_from_routing_sync(
         self,

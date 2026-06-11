@@ -17,6 +17,8 @@ class KafkaJobQueue:
     """
 
     name = "kafka"
+    TOPIC_PREFIX = TOPIC_PREFIX
+    DLQ_TOPIC = DLQ_TOPIC
 
     def __init__(
         self,
@@ -77,6 +79,31 @@ class KafkaJobQueue:
         except Exception:
             self._fallback_queue.append(job)
         return job.get("job_id", "")
+
+    async def send_to_dlq(self, job: dict[str, Any], error: str = "") -> None:
+        """Send a poison/failed job to the DLQ topic."""
+        dlq_entry = {**job, "dlq_error": error, "dlq_timestamp": __import__("time").time()}
+        if not self._check_aiokafka():
+            import structlog
+            structlog.get_logger(__name__).warning(
+                "kafka_queue.dlq_fallback", job_id=job.get("job_id"), error=error
+            )
+            return
+        try:
+            from aiokafka import AIOKafkaProducer
+
+            producer = AIOKafkaProducer(bootstrap_servers=self._bootstrap)
+            await producer.start()
+            try:
+                payload = json.dumps(dlq_entry, ensure_ascii=False).encode()
+                await producer.send_and_wait(self.DLQ_TOPIC, payload)
+            finally:
+                await producer.stop()
+        except Exception as exc:
+            import structlog
+            structlog.get_logger(__name__).error(
+                "kafka_queue.dlq_send_failed", job_id=job.get("job_id"), error=str(exc)
+            )
 
     async def adequeue(self, timeout: float = 0.0) -> dict[str, Any] | None:
         """Async poll from consume_topic (one message per call)."""
