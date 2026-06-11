@@ -244,6 +244,71 @@ def test_persistence_memory_postgres_fallback_and_singleton(monkeypatch):
     assert persistence.get_persistence() is cached
 
 
+@pytest.mark.asyncio
+async def test_async_persistence_memory_postgres_fallback_and_singleton(monkeypatch):
+    import cys_core.persistence as persistence
+
+    stack = persistence.AsyncPersistenceStack(force_memory=True)
+    assert stack._use_memory() is True
+    async with stack as active:
+        assert active.checkpointer is not None
+        assert active.store is not None
+
+    monkeypatch.setattr(persistence.settings, "use_memory_fallback", False)
+    monkeypatch.setattr(persistence.settings, "stage", "dev")
+    assert persistence.AsyncPersistenceStack(force_memory=False)._use_memory() is False
+
+    class FakeAsyncResource:
+        def __init__(self):
+            self.setup_called = False
+
+        async def setup(self):
+            self.setup_called = True
+
+    class FakeAsyncContextManager:
+        def __init__(self, resource):
+            self.resource = resource
+            self.exited = False
+
+        async def __aenter__(self):
+            return self.resource
+
+        async def __aexit__(self, exc_type, exc, tb):
+            self.exited = True
+
+    checkpoint = FakeAsyncResource()
+    store = FakeAsyncResource()
+    checkpoint_cm = FakeAsyncContextManager(checkpoint)
+    store_cm = FakeAsyncContextManager(store)
+    checkpoint_module = types.ModuleType("langgraph.checkpoint.postgres.aio")
+    store_module = types.ModuleType("langgraph.store.postgres.aio")
+    checkpoint_module.AsyncPostgresSaver = SimpleNamespace(from_conn_string=lambda _url: checkpoint_cm)
+    store_module.AsyncPostgresStore = SimpleNamespace(from_conn_string=lambda _url: store_cm)
+    monkeypatch.setitem(sys.modules, "langgraph.checkpoint.postgres.aio", checkpoint_module)
+    monkeypatch.setitem(sys.modules, "langgraph.store.postgres.aio", store_module)
+
+    postgres_stack = persistence.AsyncPersistenceStack(force_memory=False)
+    await postgres_stack.__aenter__()
+    assert checkpoint.setup_called is True
+    assert store.setup_called is True
+    await postgres_stack.__aexit__(None, None, None)
+    assert checkpoint_cm.exited is True
+    assert store_cm.exited is True
+
+    checkpoint_module.AsyncPostgresSaver = SimpleNamespace(
+        from_conn_string=lambda _url: (_ for _ in ()).throw(RuntimeError("db"))
+    )
+    fallback_stack = await persistence.AsyncPersistenceStack(force_memory=False).__aenter__()
+    assert fallback_stack.checkpointer is not None
+    assert fallback_stack.store is not None
+
+    monkeypatch.setattr(persistence, "_async_persistence", None)
+    forced = await persistence.get_async_persistence(force_memory=True)
+    cached = await persistence.get_async_persistence()
+    assert forced is not cached
+    assert await persistence.get_async_persistence() is cached
+
+
 def test_registry_helpers_and_temp_agent_loading(tmp_path, monkeypatch):
     from cys_core.registry import agents
 
@@ -436,7 +501,8 @@ def test_all_tool_functions_and_registry_edges():
         tools.tool_registry.get("missing")
 
 
-def test_scope_middleware_denies_blocked_paths_and_allows_handler():
+@pytest.mark.asyncio
+async def test_scope_middleware_denies_blocked_paths_and_allows_handler():
     from cys_core.middleware.scope_middleware import ScopeMiddleware
 
     middleware = ScopeMiddleware(allowed_tools={"read_file"})
@@ -456,6 +522,28 @@ def test_scope_middleware_denies_blocked_paths_and_allows_handler():
         lambda req: ToolMessage(content="ok", tool_call_id=req.tool_call["id"]),
     )
     assert allowed.content == "ok"
+
+    async_denied = await middleware.awrap_tool_call(
+        request("write_file"),
+        lambda req: ToolMessage(content="ok", tool_call_id=req.tool_call["id"]),
+    )
+    assert async_denied.status == "error"
+    async_blocked = await middleware.awrap_tool_call(
+        request("read_file", args={"file_path": "/tmp/secret.key"}),
+        lambda req: ToolMessage(content="ok", tool_call_id=req.tool_call["id"]),
+    )
+    assert async_blocked.status == "error"
+
+    async def async_handler(req):
+        return ToolMessage(content="async-ok", tool_call_id=req.tool_call["id"])
+
+    assert (await middleware.awrap_tool_call(request("read_file"), async_handler)).content == "async-ok"
+    assert (
+        await middleware.awrap_tool_call(
+            request("read_file"),
+            lambda req: ToolMessage(content="sync-ok", tool_call_id=req.tool_call["id"]),
+        )
+    ).content == "sync-ok"
 
 
 def test_security_middleware_paths_and_hitl_builder(monkeypatch):
@@ -496,6 +584,57 @@ def test_security_middleware_paths_and_hitl_builder(monkeypatch):
 
     hitl = security_middleware.build_hitl_middleware({"run_active_scan": True, "read_repo_metadata": False})
     assert hitl is not None
+
+
+@pytest.mark.asyncio
+async def test_security_middleware_async_paths(monkeypatch):
+    import cys_core.middleware.security_middleware as security_middleware
+
+    middleware = security_middleware.SecurityMiddleware("agent-a", "session-a")
+
+    class FakeRateLimiter:
+        def __init__(self):
+            self.error: Exception | None = None
+
+        async def acheck(self, _key):
+            if self.error:
+                raise self.error
+
+    rate_limiter = FakeRateLimiter()
+    middleware.rate_limiter = rate_limiter
+    middleware.monitor = SimpleNamespace(log_security_event=MagicMock(), log_tool_call=MagicMock())
+    monkeypatch.setattr(security_middleware.settings, "stage", "test")
+
+    class HighRisk:
+        value = "high"
+
+        def __gt__(self, _other):
+            return True
+
+    monkeypatch.setattr(security_middleware, "classify_tool_risk", lambda _name: HighRisk())
+    gated = await middleware.awrap_tool_call(request("danger"), lambda req: ToolMessage(content="ok", tool_call_id="x"))
+    assert gated.status == "error"
+
+    rate_limiter.error = RuntimeError("too many")
+    limited = await middleware.awrap_tool_call(request("parse_netflow"), lambda req: ToolMessage(content="ok", tool_call_id="x"))
+    assert limited.status == "error"
+    middleware.monitor.log_security_event.assert_called()
+
+    rate_limiter.error = None
+    monkeypatch.setattr(security_middleware, "classify_tool_risk", lambda _name: security_middleware.RiskLevel.LOW)
+
+    async def async_handler(req):
+        return ToolMessage(content="async-ok", tool_call_id=req.tool_call["id"])
+
+    handled = await middleware.awrap_tool_call(request("parse_netflow"), async_handler)
+    assert handled.content == "async-ok"
+    middleware.monitor.log_tool_call.assert_called()
+
+    with pytest.raises(ValueError, match="async failed"):
+        await middleware.awrap_tool_call(
+            request("parse_netflow"),
+            lambda _req: (_ for _ in ()).throw(ValueError("async failed")),
+        )
 
 
 def test_agent_bus_security_edges(monkeypatch):
@@ -653,7 +792,8 @@ def test_monitor_logging_redaction_and_anomaly(monkeypatch):
     assert monitor.events[-1].event_type == "custom"
 
 
-def test_rate_limiters_memory_and_redis(monkeypatch):
+@pytest.mark.asyncio
+async def test_rate_limiters_memory_and_redis(monkeypatch):
     from cys_core.security import rate_limit
 
     times = iter([100.0, 101.0, 200.0])
@@ -662,6 +802,9 @@ def test_rate_limiters_memory_and_redis(monkeypatch):
     assert limiter.allow("key") is True
     assert limiter.allow("key") is False
     assert limiter.allow("key") is True
+    assert await rate_limit.InMemoryRateLimiter(max_calls=1).aallow("async-key") is True
+    with pytest.raises(rate_limit.RateLimitExceeded, match="Rate limit exceeded"):
+        await rate_limit.InMemoryRateLimiter(max_calls=0).acheck("async-blocked")
     monkeypatch.setattr(rate_limit.time, "time", lambda: 300.0)
     with pytest.raises(rate_limit.RateLimitExceeded, match="Rate limit exceeded"):
         rate_limit.InMemoryRateLimiter(max_calls=0).check("blocked")
@@ -708,6 +851,58 @@ def test_rate_limiters_memory_and_redis(monkeypatch):
         redis_limiter.check("key")
     redis_limiter._redis = None
     assert redis_limiter.allow("fallback-key") is True
+
+    class FakeAsyncPipeline:
+        def __init__(self, count):
+            self.count = count
+
+        def zremrangebyscore(self, *args):
+            return None
+
+        def zadd(self, *args):
+            return None
+
+        def zcard(self, *args):
+            return None
+
+        def expire(self, *args):
+            return None
+
+        async def execute(self):
+            return [None, None, self.count, None]
+
+    class FakeAsyncRedis:
+        def __init__(self, count):
+            self.count = count
+
+        async def ping(self):
+            return True
+
+        def pipeline(self):
+            return FakeAsyncPipeline(self.count)
+
+    redis_pkg = types.ModuleType("redis")
+    redis_pkg.__path__ = []
+    redis_pkg.from_url = lambda *_args, **_kwargs: FakeRedis(1)
+    async_module = types.ModuleType("redis.asyncio")
+    async_module.from_url = lambda *_args, **_kwargs: FakeAsyncRedis(1)
+    monkeypatch.setitem(sys.modules, "redis", redis_pkg)
+    monkeypatch.setitem(sys.modules, "redis.asyncio", async_module)
+    async_limiter = rate_limit.RedisRateLimiter(max_calls=1, window_seconds=10, redis_url="redis://unit")
+    assert await async_limiter.aallow("async-key") is True
+    assert await async_limiter._get_async_redis() is async_limiter._async_redis
+
+    async_limiter._async_redis = FakeAsyncRedis(2)
+    assert await async_limiter.aallow("async-key") is False
+    with pytest.raises(rate_limit.RateLimitExceeded):
+        await async_limiter.acheck("async-key")
+
+    async_module.from_url = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("redis down"))
+    fallback_async = rate_limit.RedisRateLimiter(max_calls=1, window_seconds=10, redis_url="redis://unit")
+    fallback_async._async_redis = None
+    fallback_async._async_redis_unavailable = False
+    assert await fallback_async.aallow("fallback-async") is True
+    assert await fallback_async._get_async_redis() is None
 
 
 def test_risk_and_sanitizer_edges():
@@ -764,6 +959,15 @@ async def test_runtime_create_run_invoke_and_deep_agent_tool(monkeypatch):
     assert captured["checkpointer"] == "cp"
     assert captured["tools"][-1] == "extra-tool"
     assert len(captured["middleware"]) == 3
+
+    async def fake_get_async_persistence(force_memory=True):
+        return SimpleNamespace(checkpointer="async-cp")
+
+    monkeypatch.setattr(runtime_agent, "get_async_persistence", fake_get_async_persistence)
+    async_created = await runtime.acreate(defn, session_id="async-sid", extra_tools=["async-extra"])
+    assert async_created.created is True
+    assert captured["checkpointer"] == "async-cp"
+    assert captured["tools"][-1] == "async-extra"
 
     monkeypatch.setattr(runtime, "create", lambda loaded_defn, session_id: SimpleNamespace(agent=True))
     monkeypatch.setattr(runtime, "_invoke", lambda agent, text, session_id, schema: {"sid": session_id, "text": text})
@@ -970,20 +1174,33 @@ async def test_graph_workflow_build_cache_and_run(monkeypatch):
             return FakeCompiledGraph()
 
     monkeypatch.setattr(workflow, "_compiled_graph", None)
+    monkeypatch.setattr(workflow, "_compiled_async_graph", None)
     monkeypatch.setattr(workflow, "StateGraph", FakeStateGraph)
     monkeypatch.setattr(workflow, "get_persistence", lambda: SimpleNamespace(checkpointer="default-cp"))
+    async def fake_get_async_persistence():
+        return SimpleNamespace(checkpointer="async-default-cp")
+
+    monkeypatch.setattr(workflow, "get_async_persistence", fake_get_async_persistence)
 
     explicit = workflow.build_assessment_graph(SimpleNamespace(checkpointer="explicit-cp"))
     assert isinstance(explicit, FakeCompiledGraph)
     cached = workflow.build_assessment_graph()
     assert workflow.build_assessment_graph() is cached
 
-    monkeypatch.setattr(workflow, "build_assessment_graph", lambda persistence=None: explicit)
+    async_explicit = await workflow.build_assessment_graph_async(SimpleNamespace(checkpointer="async-explicit-cp"))
+    assert isinstance(async_explicit, FakeCompiledGraph)
+    async_cached = await workflow.build_assessment_graph_async()
+    assert await workflow.build_assessment_graph_async() is async_cached
+
+    async def fake_build_assessment_graph_async(persistence=None):
+        return async_explicit
+
+    monkeypatch.setattr(workflow, "build_assessment_graph_async", fake_build_assessment_graph_async)
     fresh = await workflow.run_assessment_async(
         "raw",
         thread_id="tid",
         scope={"authorized": False},
-        persistence=SimpleNamespace(),
+        persistence=SimpleNamespace(checkpointer="cp"),
     )
     assert fresh["payload"]["raw_input"] == "raw"
     assert fresh["payload"]["scope"] == {"authorized": False}
