@@ -1047,10 +1047,14 @@ async def test_runtime_create_run_invoke_and_deep_agent_tool(monkeypatch):
 async def test_graph_nodes_success_error_and_hitl_paths(monkeypatch):
     import graph.nodes as nodes
 
-    monkeypatch.setattr(nodes, "_rate_limiter", SimpleNamespace(check=MagicMock()))
+    class FakeNodeRateLimiter:
+        async def acheck(self, _key):
+            return None
+
+    monkeypatch.setattr(nodes, "_rate_limiter", FakeNodeRateLimiter())
     monkeypatch.setattr(nodes, "_sanitizer", SimpleNamespace(sanitize=lambda text: f"safe:{text}"))
 
-    ingest = nodes.ingest_node({"raw_input": "raw", "session_id": "sid", "scope": {"authorized": False}})
+    ingest = await nodes.ingest_node({"raw_input": "raw", "session_id": "sid", "scope": {"authorized": False}})
     assert ingest["sanitized_input"] == "safe:raw"
     assert ingest["scope"] == {"authorized": False}
 

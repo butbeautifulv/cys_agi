@@ -40,9 +40,9 @@ for _defn in _registry.all():
     )
 
 
-def ingest_node(state: AssessmentState) -> dict[str, Any]:
+async def ingest_node(state: AssessmentState) -> dict[str, Any]:
     session_id = state.get("session_id", "assessment")
-    _rate_limiter.check(f"assessment:{session_id}")
+    await _rate_limiter.acheck(f"assessment:{session_id}")
     raw = state.get("raw_input", "")
     sanitized = _sanitizer.sanitize(raw)
     return {
