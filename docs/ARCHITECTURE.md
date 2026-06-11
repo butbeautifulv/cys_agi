@@ -2,12 +2,13 @@
 
 ## Обзор
 
-cys-agi — гибридная платформа:
+cys-agi — гибридная платформа с DDD-границами и async-ready runtime:
 
 1. **LangGraph pipeline** (`graph/`) — детерминированный flow для batch-оценок
 2. **Deep Agents coordinator** (`coordinator/`) — длинные сессии с subagents и on-demand skills
+3. **Domain layer** (`cys_core/domain/`) — чистые модели и политики без framework/I/O зависимостей
 
-Оба пути используют единый **AgentRuntime** и **AgentRegistry**.
+Оба пути используют единый **AgentRuntime** и **AgentRegistry**. Для async-сценариев доступны `AgentRuntime.arun()`, `run_assessment_async()` и `run_session_async()`.
 
 ## Data flow: LangGraph assess
 
@@ -44,10 +45,10 @@ END
 |------|---------|
 | `ingest_node` | `InputSanitizer`, `RedisRateLimiter` |
 | `dispatch_node` | `Send("run_agent")` для каждого `role=specialist` |
-| `run_agent_node` | `AgentRuntime.run()` + `SecureAgentBus` |
+| `run_agent_node` | `await AgentRuntime.arun()` + `SecureAgentBus` |
 | `critic_node` | Critic agent + `OutputGuardrails.validate_schema` |
-| `hitl_gate_node` | `interrupt()` или auto-approve в dev |
-| `report_node` | Финальный JSON report |
+| `hitl_gate_node` | `HitlPolicy` + `interrupt()` или auto-approve в dev |
+| `report_node` | `AssessmentReportBuilder` |
 
 Persistence: Postgres checkpointer (или `MemorySaver` в test/dev fallback).
 
@@ -101,6 +102,18 @@ create_agent(
 ```
 
 `run(name, input)` — sanitize → invoke → validate output schema.
+`arun(name, input)` — async variant через `agent.ainvoke()`.
+
+## Domain layer (`cys_core/domain/`)
+
+| Bounded context | Содержание |
+|-----------------|------------|
+| `domain/agents` | `AgentConfig`, `AgentDefinition` |
+| `domain/assessment` | `AssessmentState`, `HitlPolicy`, `AssessmentReportBuilder` |
+| `domain/findings` | Finding schemas и `CriticResult` |
+| `domain/security` | Risk policy, sanitizer, guardrails, agent bus, `SecurityViolation` |
+
+Legacy paths (`cys_core/security/*`, `cys_core/schemas/findings.py`, `cys_core/registry/models.py`) оставлены как compatibility exports.
 
 ## LLM layer (`cys_core/llm/`)
 

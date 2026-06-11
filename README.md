@@ -1,14 +1,18 @@
 # cys-agi
 
-Платформа безопасных мульти-агентов для оценки кибербезопасности. Гибридная архитектура: **LangGraph pipeline** для детерминированных оценок и **Deep Agents coordinator** для длинных сессий.
+Secure async multi-agent cybersecurity assessment platform with DDD boundaries, LangGraph pipelines, Deep Agents coordination, and LiteLLM provider abstraction.
+
+Платформа безопасных мульти-агентов для оценки кибербезопасности. Архитектура сочетает чистый **domain** слой (DDD), **async/await** runtime, **LangGraph pipeline** для детерминированных оценок и **Deep Agents coordinator** для длинных сессий.
 
 ## Возможности
 
 - 6 config-driven агентов (redteam, network, soc, compliance, critic, coordinator)
+- DDD domain layer: agents, assessment, findings, security policies
+- Async-ready runtime: `AgentRuntime.arun()`, `run_assessment_async()`, `run_session_async()`
 - Provider-agnostic LLM через LiteLLM (Anthropic, OpenAI, Gemini, OpenRouter)
 - Security layer: sanitization, guardrails, rate limiting, agent bus, HITL
 - Продуктовый слой `agents/` — personas, rules, plans, skills
-- 23 теста (registry + adversarial)
+- 100% unit test coverage for platform modules
 
 ## Быстрый старт
 
@@ -66,14 +70,14 @@ USE_MEMORY_FALLBACK=true STAGE=test python main.py adversarial-test
                               │
                ┌──────────────▼──────────────┐
                │   cys_core/runtime/agent.py │
-               │   AgentRuntime (единая точка)│
+               │   AgentRuntime / arun        │
                └──────────────┬──────────────┘
                               │
         ┌─────────────────────┼─────────────────────┐
         │                     │                     │
  ┌──────▼──────┐    ┌─────────▼────────┐   ┌──────▼──────┐
  │ cys_core/   │    │ cys_core/        │   │ cys_core/   │
- │ registry/   │    │ llm/ (LiteLLM)   │   │ security/   │
+ │ domain/     │    │ llm/ (LiteLLM)   │   │ registry/   │
  └──────┬──────┘    └──────────────────┘   └─────────────┘
         │
  ┌──────▼──────────────────────────────────────┐
@@ -95,10 +99,11 @@ cys-agi/
 │   ├── plans/              # playbooks оценки
 │   └── skills/             # domain knowledge
 ├── cys_core/               # Платформенный код
+│   ├── domain/             # DDD: agents, assessment, findings, security
 │   ├── llm/                # LiteLLM provider
 │   ├── registry/           # AgentRegistry, tools, schemas
-│   ├── runtime/            # AgentRuntime
-│   ├── security/           # guardrails, sanitizer, bus
+│   ├── runtime/            # AgentRuntime sync/async APIs
+│   ├── security/           # compatibility exports + infra helpers
 │   └── middleware/         # scope, security middleware
 ├── graph/                  # LangGraph pipeline
 ├── coordinator/            # Deep Agents sessions
@@ -171,4 +176,4 @@ uv run pytest tests/adversarial/ -q
 
 ## Лицензия
 
-Private / internal use.
+MIT. См. [LICENSE](LICENSE).

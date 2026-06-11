@@ -9,5 +9,6 @@
 ## Связанные файлы в корне
 
 - [README.md](../README.md) — обзор проекта и quick start
+- [LICENSE](../LICENSE) — MIT license
 - [AGENTS.md](../AGENTS.md) — правила для AI-ассистентов
 - [agents/README.md](../agents/README.md) — продуктовый слой

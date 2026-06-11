@@ -3,6 +3,7 @@ name = "cys-agi"
 version = "0.1.0"
 description = "Secure multi-agent cybersecurity assessment platform"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "deepagents>=0.4.0",
