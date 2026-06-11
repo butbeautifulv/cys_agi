@@ -88,4 +88,8 @@ class RedisBusTransport:
 
 @lru_cache
 def get_bus_transport() -> RedisBusTransport:
+    if settings.use_kafka:
+        from cys_core.infrastructure.kafka_bus import KafkaBusTransport
+
+        return KafkaBusTransport()  # type: ignore[return-value]
     return RedisBusTransport()
