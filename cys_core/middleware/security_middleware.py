@@ -4,16 +4,15 @@ import inspect
 from collections.abc import Callable
 from typing import Any, Awaitable
 
-from langchain.agents.middleware.human_in_the_loop import HumanInTheLoopMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
 from config import settings
+from cys_core.domain.security.risk import RiskLevel, classify_tool_risk, parse_threshold
 from cys_core.security.monitor import AgentMonitor
 from cys_core.security.rate_limit import RedisRateLimiter
-from cys_core.security.risk import RiskLevel, classify_tool_risk, parse_threshold
 
 
 class SecurityMiddleware(AgentMiddleware):
@@ -116,13 +115,3 @@ class SecurityMiddleware(AgentMiddleware):
                 {"tool": tool_name, "error": str(exc)},
             )
             raise
-
-
-def build_hitl_middleware(interrupt_tools: dict[str, bool]) -> HumanInTheLoopMiddleware:
-    """Build HITL middleware for sensitive tools."""
-    interrupt_on = {
-        name: {"allowed_decisions": ["approve", "edit", "reject"]}
-        for name, enabled in interrupt_tools.items()
-        if enabled
-    }
-    return HumanInTheLoopMiddleware(interrupt_on=interrupt_on)

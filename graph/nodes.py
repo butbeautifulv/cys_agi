@@ -10,14 +10,13 @@ from cys_core.domain.assessment.services import AssessmentReportBuilder, HitlPol
 from cys_core.registry.agents import get_agent_registry
 from cys_core.registry.schemas import schema_registry
 from cys_core.runtime.agent import get_runtime
-from cys_core.security.agent_bus import AgentTrustLevel, SecureAgentBus
-from cys_core.security.guardrails import OutputGuardrails
+from cys_core.domain.security.agent_bus import AgentTrustLevel, SecureAgentBus
+from cys_core.domain.security.factory import get_input_sanitizer, get_output_guardrails
 from cys_core.security.rate_limit import RedisRateLimiter
-from cys_core.security.sanitizer import InputSanitizer
 from graph.state import AssessmentState
 
-_sanitizer = InputSanitizer()
-_guardrails = OutputGuardrails()
+_sanitizer = get_input_sanitizer()
+_guardrails = get_output_guardrails()
 _hitl_policy = HitlPolicy(_guardrails)
 _report_builder = AssessmentReportBuilder()
 _rate_limiter = RedisRateLimiter()
@@ -83,7 +82,10 @@ async def run_agent_node(state: dict[str, Any]) -> dict[str, Any]:
 
 async def critic_node(state: AssessmentState) -> dict[str, Any]:
     session_id = state.get("session_id", "assessment")
-    findings_blob = json.dumps(state.get("findings", []), ensure_ascii=False)
+    findings_blob = _sanitizer.sanitize(
+        json.dumps(state.get("findings", []), ensure_ascii=False),
+        source="agent_bus",
+    )
     critic_schema = schema_registry.get("CriticResult")
     try:
         result = await _runtime.arun("critic", findings_blob, session_id=f"{session_id}:critic")

@@ -16,7 +16,10 @@ def test_agent_definitions_have_prompts_and_samples():
     registry = AgentRegistry.load()
     redteam = registry.get("redteam")
     assert "RedTeamAgent" in redteam.system_prompt
-    assert "## Global rules" in redteam.system_prompt
+    assert "SYSTEM_INSTRUCTIONS:" in redteam.system_prompt
+    assert "GLOBAL_RULES:" in redteam.system_prompt
+    assert "SECURITY_RULES:" in redteam.system_prompt
+    assert redteam.system_prompt_digest
     assert redteam.sample_input is not None
     assert "pull_request_target" in redteam.sample_input
     assert redteam.tools == [

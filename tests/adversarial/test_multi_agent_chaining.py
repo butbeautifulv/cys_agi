@@ -2,13 +2,15 @@
 
 import pytest
 
-from cys_core.security.agent_bus import SecurityViolation
+from cys_core.domain.security.exceptions import SecurityViolation
 
 
 def test_signed_message_roundtrip(agent_bus):
     msg = agent_bus.send_message("network", "critic", "finding", {"summary": "beaconing"})
     payload = agent_bus.receive_message("critic", msg)
-    assert payload["summary"] == "beaconing"
+    assert payload["summary"].startswith("USER_DATA_TO_PROCESS")
+    assert '<untrusted_data source="agent_bus">' in payload["summary"]
+    assert "beaconing" in payload["summary"]
 
 
 def test_tampered_signature_rejected(agent_bus):

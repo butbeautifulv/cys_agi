@@ -2,7 +2,7 @@
 
 import pytest
 
-from cys_core.security.guardrails import SecurityViolation
+from cys_core.domain.security.exceptions import SecurityViolation
 
 
 def test_pii_redacted_in_output(guardrails):

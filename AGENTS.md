@@ -28,7 +28,7 @@ agents/
 2. `agents/personas/<name>/AGENT.md` — system prompt (можно YAML frontmatter)
 3. `agents/personas/<name>/samples/default.txt` — пример входа
 4. Запись в `agents/manifest.yaml`
-5. При необходимости: schema в `cys_core/registry/schemas.py`, tool в `tools.py`
+5. При необходимости: schema в `cys_core/domain/findings/models.py` + регистрация в `registry/schemas.py`, tool в `tools.py`
 6. `pytest tests/registry/`
 
 ### Roles
@@ -57,7 +57,7 @@ agents/
 
 ### Security
 
-Следовать [docs/AI_Agent_Security_Cheat_Sheet.md](docs/AI_Agent_Security_Cheat_Sheet.md):
+Следовать [docs/reference/AI_Agent_Security_Cheat_Sheet.md](docs/reference/AI_Agent_Security_Cheat_Sheet.md) и [docs/reference/LLM_Prompt_Injection_Prevention_Cheat_Sheet.md](docs/reference/LLM_Prompt_Injection_Prevention_Cheat_Sheet.md):
 
 - Input sanitization перед LLM
 - Tool allowlist per agent (`agent.yaml`)
@@ -79,11 +79,22 @@ agents/personas/ + rules/ ← AgentRegistry ← ProductContext
 ## Тесты
 
 ```bash
-USE_MEMORY_FALLBACK=true STAGE=test pytest tests/ -q
+USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/ -q
+USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/ --cov=cys_core/domain --cov-report=term-missing
 ```
 
-- `tests/registry/` — загрузка personas, rules injection, runtime
-- `tests/adversarial/` — prompt injection, exfiltration, tool abuse, bus chaining
+Структура:
+
+- `tests/domain/` — unit-тесты domain-политик (sanitizer, scope, hitl, findings)
+- `tests/middleware/` — LangChain middleware adapters
+- `tests/infrastructure/` — persistence, llm, rate_limit, memory, monitor
+- `tests/graph/`, `tests/coordinator/` — orchestration wiring
+- `tests/registry/` — smoke против реального `agents/`
+- `tests/adversarial/` — security abuse scenarios
+
+Coverage gate: **100%** на `cys_core/domain` (`pyproject.toml`).
+
+Импорты: `cys_core.domain.*` для политик; `cys_core.security.*` только infrastructure (`monitor`, `memory`, `rate_limit`).
 
 ## Язык
 
@@ -137,4 +148,4 @@ cp .env.example .env   # LLM API key для live assess/session/agent
 
 ### Линт
 
-Отдельного linter (ruff/mypy) в репозитории нет; quality gate — pytest (23 теста: registry + adversarial).
+Отдельного linter (ruff/mypy) в репозитории нет; quality gate — pytest (102 теста, 100% coverage на `cys_core/domain`).

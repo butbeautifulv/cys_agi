@@ -7,15 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from cys_core.domain.security.exceptions import SecurityViolation
-
-PII_PATTERNS = [
-    (r"\b\d{3}-\d{2}-\d{4}\b", "[SSN_REDACTED]"),
-    (r"\b\d{16}\b", "[CARD_REDACTED]"),
-    (r"password\s*[:=]\s*\S+", "password=[REDACTED]"),
-    (r"api[_-]?key\s*[:=]\s*\S+", "api_key=[REDACTED]"),
-    (r"secret\s*[:=]\s*\S+", "secret=[REDACTED]"),
-    (r"token\s*[:=]\s*\S+", "token=[REDACTED]"),
-]
+from cys_core.domain.security.redaction import PII_PATTERNS, RedactionService
 
 SENSITIVE_PARAM_PATTERNS = [
     r"api[_-]?key",
@@ -26,30 +18,33 @@ SENSITIVE_PARAM_PATTERNS = [
     r"private[_-]?key",
 ]
 
+PROMPT_LEAKAGE_PATTERNS = [
+    r"SYSTEM\s*:\s*You\s+are",
+    r"SYSTEM_INSTRUCTIONS:",
+    r"SECURITY_RULES:",
+    r"GLOBAL_RULES:",
+    r"instructions?\s*:\s*\d+\.",
+]
+
 
 class OutputGuardrails:
     """Validate and filter agent outputs."""
 
-    def __init__(
-        self,
-        allowed_tools: set[str] | None = None,
-        max_payload_size: int = 10_000,
-    ) -> None:
-        self.allowed_tools = allowed_tools
+    def __init__(self, max_payload_size: int = 10_000) -> None:
         self.max_payload_size = max_payload_size
+        self._redaction = RedactionService()
 
     def filter_pii(self, text: str) -> str:
-        for pattern, replacement in PII_PATTERNS:
-            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-        return text
+        return self._redaction.redact_pii(text)
 
     def validate_tool_call(self, tool_name: str, parameters: dict[str, Any]) -> None:
-        if self.allowed_tools is not None and tool_name not in self.allowed_tools:
-            raise SecurityViolation(f"Tool '{tool_name}' is not in allowed list")
         params_str = json.dumps(parameters).lower()
         for pattern in SENSITIVE_PARAM_PATTERNS:
             if re.search(pattern, params_str):
                 raise SecurityViolation("Parameters contain potentially sensitive data")
+
+    def detect_prompt_leakage(self, text: str) -> bool:
+        return any(re.search(pattern, text, re.IGNORECASE) for pattern in PROMPT_LEAKAGE_PATTERNS)
 
     def detect_exfiltration(self, output: dict[str, Any]) -> bool:
         tool_name = output.get("tool_name", "")
@@ -71,7 +66,10 @@ class OutputGuardrails:
         if self.detect_exfiltration(agent_output):
             raise SecurityViolation("Potential data exfiltration detected")
         if "response" in agent_output:
-            agent_output["response"] = self.filter_pii(str(agent_output["response"]))
+            response_text = str(agent_output["response"])
+            if self.detect_prompt_leakage(response_text):
+                raise SecurityViolation("Potential system prompt leakage detected")
+            agent_output["response"] = self.filter_pii(response_text)
         if "tool_calls" in agent_output:
             for call in agent_output["tool_calls"]:
                 self.validate_tool_call(call.get("tool_name", ""), call.get("parameters", {}))
@@ -88,4 +86,3 @@ class OutputGuardrails:
             if risk in ("critical", "high"):
                 return True
         return False
-

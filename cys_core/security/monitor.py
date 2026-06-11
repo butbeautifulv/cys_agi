@@ -6,7 +6,10 @@ from typing import Any
 
 import structlog
 
+from cys_core.domain.security.redaction import RedactionService
+
 logger = structlog.get_logger()
+_redaction = RedactionService()
 
 
 @dataclass
@@ -60,6 +63,37 @@ class AgentMonitor:
         self._emit(event)
         self._check_anomalies(session_id, event)
 
+    def record_injection_attempt(
+        self,
+        session_id: str,
+        verdict: str,
+        details: dict[str, Any],
+        user_id: str = "system",
+    ) -> None:
+        metrics = self.session_metrics.setdefault(
+            session_id,
+            {"tool_calls": [], "failed_calls": 0, "injection_attempts": 0},
+        )
+        metrics["injection_attempts"] = metrics.get("injection_attempts", 0) + 1
+        self.log_security_event(
+            session_id,
+            "injection_attempt",
+            "WARNING",
+            {"verdict": verdict, **details},
+            user_id=user_id,
+        )
+        if metrics["injection_attempts"] > self.ANOMALY_THRESHOLDS["injection_attempts"]:
+            self.log_security_event(
+                session_id,
+                "anomaly_detected",
+                "WARNING",
+                {
+                    "reason": "injection_attempts",
+                    "count": metrics["injection_attempts"],
+                },
+                user_id=user_id,
+            )
+
     def log_security_event(
         self,
         session_id: str,
@@ -111,12 +145,4 @@ class AgentMonitor:
             )
 
     def _redact_sensitive(self, data: Any) -> Any:
-        sensitive_keys = {"password", "api_key", "token", "secret", "credential"}
-        if isinstance(data, dict):
-            return {
-                k: "***REDACTED***" if k.lower() in sensitive_keys else self._redact_sensitive(v)
-                for k, v in data.items()
-            }
-        if isinstance(data, list):
-            return [self._redact_sensitive(i) for i in data]
-        return data
+        return _redaction.redact_sensitive_keys(data)

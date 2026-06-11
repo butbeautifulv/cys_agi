@@ -128,12 +128,13 @@ create_agent(
 
 | Bounded context | Содержание |
 |-----------------|------------|
-| `domain/agents` | `AgentConfig`, `AgentDefinition` |
+| `domain/agents` | `AgentConfig`, `AgentDefinition`, `build_interrupt_on` (HITL policies) |
 | `domain/assessment` | `AssessmentState`, `HitlPolicy`, `AssessmentReportBuilder` |
 | `domain/findings` | Finding schemas и `CriticResult` |
-| `domain/security` | Risk policy, sanitizer, guardrails, agent bus, `SecurityViolation` |
+| `domain/security` | Sanitizer, guardrails, scope, redaction, prompt context, agent bus, factory, `SecurityViolation` |
+| `domain/messaging` | `extract_message_content` — pure message text normalization |
 
-Legacy paths (`cys_core/security/*`, `cys_core/schemas/findings.py`, `cys_core/registry/models.py`) оставлены как compatibility exports.
+Domain policies импортируются из `cys_core.domain.*`. Compatibility shims удалены.
 
 ## LLM layer (`cys_core/llm/`)
 
@@ -144,21 +145,25 @@ Legacy paths (`cys_core/security/*`, `cys_core/schemas/findings.py`, `cys_core/r
 
 Нет прямой зависимости от `langchain-openai`.
 
-## Security layer (`cys_core/security/`)
+## Security layer
+
+**Domain policies** (`cys_core/domain/security/`): `InputSanitizer`, `OutputGuardrails`, `ScopePolicy`, `RedactionService`, `SecureAgentBus`, `TrustedSystemContext`, `PromptContextMiddleware` (via `cys_core/middleware/`).
+
+Threat model reference: [reference/LLM_Prompt_Injection_Prevention_Cheat_Sheet.md](reference/LLM_Prompt_Injection_Prevention_Cheat_Sheet.md).
+
+**Infrastructure** (`cys_core/security/`):
 
 | Модуль | Назначение |
 |--------|------------|
-| `sanitizer.py` | Input sanitization (prompt injection patterns) |
-| `guardrails.py` | Output validation, HITL triggers, `SecurityViolation` |
-| `agent_bus.py` | Inter-agent messaging с trust levels |
 | `rate_limit.py` | Redis/in-memory rate limiting |
-| `risk.py` | Severity thresholds |
-| `memory.py` | Memory poisoning protection |
+| `monitor.py` | structlog security events |
+| `memory.py` | Memory poisoning protection (delegates to domain) |
 
 Inter-agent messaging uses A2A envelopes (`a2a/1.0`) with signed payloads and mTLS identity metadata. Default identities are SPIFFE-style subjects: `spiffe://cys-agi/agent/<agent_id>`.
 
 Middleware (`cys_core/middleware/`):
 
+- `PromptContextMiddleware` — structured system/user separation, injection filtering
 - `ScopeMiddleware` — tool allowlist enforcement
 - `SecurityMiddleware` — per-call logging and guards
 
@@ -173,7 +178,7 @@ Middleware (`cys_core/middleware/`):
 ## Tools и Schemas
 
 - **Tools:** `cys_core/registry/tools.py` — `ToolRegistry`, stub implementations
-- **Schemas:** `cys_core/registry/schemas.py` — Pydantic models для structured output
+- **Schemas:** `cys_core/domain/findings/models.py` — Pydantic models; `cys_core/registry/schemas.py` — registry lookup
 
 Agent yaml ссылается на tools и schema по имени:
 

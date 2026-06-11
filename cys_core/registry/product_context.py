@@ -7,6 +7,7 @@ import yaml
 from pydantic import BaseModel
 
 from config import settings
+from cys_core.domain.security.prompt_context import TrustedSystemContext, build_trusted_system_context
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RULES_SKIP = frozenset({"README.md"})
@@ -78,9 +79,10 @@ class ProductContext:
             return str(self.skills_dir)
 
     def augment_prompt(self, base_prompt: str) -> str:
-        if not self._rules_block:
-            return base_prompt
-        return f"{base_prompt}\n\n{self._rules_block}"
+        return self.build_system_context(base_prompt).text
+
+    def build_system_context(self, persona: str) -> TrustedSystemContext:
+        return build_trusted_system_context(persona, self._rules_block)
 
 
 @lru_cache

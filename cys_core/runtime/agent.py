@@ -12,20 +12,21 @@ from pydantic import BaseModel
 
 from config import settings
 from cys_core.application.ports import ModelConnector
+from cys_core.domain.agents.policies import build_interrupt_on
+from cys_core.domain.messaging import extract_message_content
+from cys_core.domain.security.exceptions import SecurityViolation
+from cys_core.domain.security.factory import get_input_sanitizer, get_output_guardrails
+from cys_core.domain.security.prompt_context import REFUSAL_MESSAGE
 from cys_core.llm import get_model_connector
+from cys_core.middleware.prompt_context_middleware import PromptContextMiddleware
 from cys_core.middleware.scope_middleware import ScopeMiddleware
 from cys_core.middleware.security_middleware import SecurityMiddleware
 from cys_core.persistence import get_persistence_connector
 from cys_core.registry.agents import AgentDefinition, AgentRegistry, get_agent_registry
 from cys_core.registry.schemas import schema_registry
 from cys_core.registry.tools import tool_registry
-from cys_core.security.guardrails import OutputGuardrails, SecurityViolation
-from cys_core.security.sanitizer import InputSanitizer
 
 T = TypeVar("T", bound=BaseModel)
-
-_sanitizer = InputSanitizer()
-_guardrails = OutputGuardrails()
 
 
 class AgentRuntime:
@@ -38,6 +39,25 @@ class AgentRuntime:
     ) -> None:
         self.registry = registry or get_agent_registry()
         self.model_connector = model_connector or get_model_connector()
+        self.sanitizer = get_input_sanitizer()
+        self.guardrails = get_output_guardrails()
+
+    def _build_middleware(self, defn: AgentDefinition, session_id: str) -> list[Any]:
+        middleware: list[Any] = [
+            PromptContextMiddleware(
+                agent_id=defn.name,
+                system_prompt_digest=defn.system_prompt_digest,
+                session_id=session_id,
+                sanitizer=self.sanitizer,
+                guardrails=self.guardrails,
+            ),
+            ScopeMiddleware(allowed_tools=defn.allowed_tools),
+            SecurityMiddleware(agent_id=defn.name, session_id=session_id),
+        ]
+        interrupt_on = build_interrupt_on(defn.hitl_tools)
+        if interrupt_on:
+            middleware.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
+        return middleware
 
     def create(
         self,
@@ -51,18 +71,6 @@ class AgentRuntime:
         tools = tool_registry.resolve(defn.tools)
         if extra_tools:
             tools = [*tools, *extra_tools]
-        middleware: list[Any] = [
-            ScopeMiddleware(allowed_tools=defn.allowed_tools),
-            SecurityMiddleware(agent_id=defn.name, session_id=session_id),
-        ]
-        if defn.hitl_tools:
-            interrupt_on = {
-                tool_name: {"allowed_decisions": ["approve", "edit", "reject"]}
-                for tool_name, enabled in defn.hitl_tools.items()
-                if enabled
-            }
-            if interrupt_on:
-                middleware.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
 
         checkpointer = None
         if use_checkpointer:
@@ -73,7 +81,7 @@ class AgentRuntime:
             model=model or self.model_connector.create_model(),
             tools=tools,
             system_prompt=defn.system_prompt,
-            middleware=middleware,
+            middleware=self._build_middleware(defn, session_id),
             response_format=schema,
             checkpointer=checkpointer,
             name=defn.name,
@@ -91,18 +99,6 @@ class AgentRuntime:
         tools = tool_registry.resolve(defn.tools)
         if extra_tools:
             tools = [*tools, *extra_tools]
-        middleware: list[Any] = [
-            ScopeMiddleware(allowed_tools=defn.allowed_tools),
-            SecurityMiddleware(agent_id=defn.name, session_id=session_id),
-        ]
-        if defn.hitl_tools:
-            interrupt_on = {
-                tool_name: {"allowed_decisions": ["approve", "edit", "reject"]}
-                for tool_name, enabled in defn.hitl_tools.items()
-                if enabled
-            }
-            if interrupt_on:
-                middleware.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
 
         checkpointer = None
         if use_checkpointer:
@@ -113,7 +109,7 @@ class AgentRuntime:
             model=model or self.model_connector.create_model(),
             tools=tools,
             system_prompt=defn.system_prompt,
-            middleware=middleware,
+            middleware=self._build_middleware(defn, session_id),
             response_format=schema,
             checkpointer=checkpointer,
             name=defn.name,
@@ -153,7 +149,10 @@ class AgentRuntime:
         session_id: str,
         schema: type[BaseModel] | None,
     ) -> dict[str, Any]:
-        sanitized = _sanitizer.sanitize(user_input)
+        try:
+            sanitized = self.sanitizer.sanitize(user_input, source="user")
+        except SecurityViolation:
+            return {"error": REFUSAL_MESSAGE}
         config = {
             "configurable": {"thread_id": session_id},
             "callbacks": self.model_connector.callbacks(),
@@ -173,7 +172,10 @@ class AgentRuntime:
         session_id: str,
         schema: type[BaseModel] | None,
     ) -> dict[str, Any]:
-        sanitized = _sanitizer.sanitize(user_input)
+        try:
+            sanitized = self.sanitizer.sanitize(user_input, source="user")
+        except SecurityViolation:
+            return {"error": REFUSAL_MESSAGE}
         config = {
             "configurable": {"thread_id": session_id},
             "callbacks": self.model_connector.callbacks(),
@@ -195,32 +197,28 @@ class AgentRuntime:
         if structured is not None:
             data = structured.model_dump() if isinstance(structured, BaseModel) else dict(structured)
             if schema:
-                validated = _guardrails.validate_schema(data, schema)
+                validated = self.guardrails.validate_schema(data, schema)
                 return validated.model_dump()
             return data
 
         messages = result.get("messages", [])
         if not messages:
             return {"error": "no response"}
-        content = messages[-1].content
-        if isinstance(content, list):
-            content = "".join(
-                block.get("text", "") if isinstance(block, dict) else str(block) for block in content
-            )
+        text = extract_message_content(messages[-1].content)
         try:
-            data = json.loads(str(content))
+            data = json.loads(text)
         except json.JSONDecodeError:
-            return {"raw_response": str(content)}
+            return {"raw_response": text}
 
         if schema:
             try:
-                validated = _guardrails.validate_schema(data, schema)
+                validated = self.guardrails.validate_schema(data, schema)
                 return validated.model_dump()
             except SecurityViolation:
                 if settings.stage == "dev":
                     return data
                 raise
-        return _guardrails.validate_output({"response": json.dumps(data, ensure_ascii=False)})
+        return self.guardrails.validate_output({"response": json.dumps(data, ensure_ascii=False)})
 
     def to_deep_agent_subagent(self, defn: AgentDefinition) -> dict[str, Any]:
         return {

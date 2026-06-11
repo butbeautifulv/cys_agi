@@ -1,11 +1,16 @@
 # Документация cys-agi
 
+## Core docs
+
 | Документ | Описание |
 |----------|----------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Архитектура, data flow, компоненты |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Разработка, отладка, тестирование |
 | [SECURE_DEPLOYMENT.md](SECURE_DEPLOYMENT.md) | Secure deployment, MILS, A2A/mTLS, hardening |
-| [AI_Agent_Security_Cheat_Sheet.md](AI_Agent_Security_Cheat_Sheet.md) | Security patterns и threat model |
+
+## Reference
+
+Справочники и cheat sheets: [reference/README.md](reference/README.md)
 
 ## Связанные файлы в корне
 

@@ -9,7 +9,7 @@ from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-from cys_core.security.guardrails import SecurityViolation
+from cys_core.domain.security.scope import ScopePolicy
 
 
 class ScopeMiddleware(AgentMiddleware):
@@ -21,13 +21,7 @@ class ScopeMiddleware(AgentMiddleware):
         blocked_path_patterns: list[str] | None = None,
     ) -> None:
         super().__init__()
-        self.allowed_tools = allowed_tools
-        self.blocked_path_patterns = blocked_path_patterns or [
-            "*.env",
-            "*.key",
-            "*.pem",
-            "*secret*",
-        ]
+        self.policy = ScopePolicy.from_tools(allowed_tools, blocked_path_patterns)
 
     def wrap_tool_call(
         self,
@@ -54,22 +48,12 @@ class ScopeMiddleware(AgentMiddleware):
 
     def _check_scope(self, request: ToolCallRequest) -> ToolMessage | None:
         tool_name = request.tool_call.get("name", "")
-        if tool_name not in self.allowed_tools:
+        args = request.tool_call.get("args", {})
+        reason = self.policy.check_tool_call(tool_name, args)
+        if reason is not None:
             return ToolMessage(
-                content=f"Access denied: tool '{tool_name}' is not allowed for this agent.",
+                content=reason,
                 tool_call_id=request.tool_call.get("id", ""),
                 status="error",
             )
-        args = request.tool_call.get("args", {})
-        for key, value in args.items():
-            if "path" in key.lower() and isinstance(value, str):
-                lower = value.lower()
-                for pattern in self.blocked_path_patterns:
-                    clean = pattern.replace("*", "")
-                    if clean and clean in lower:
-                        return ToolMessage(
-                            content=f"Access denied: path '{value}' matches blocked pattern.",
-                            tool_call_id=request.tool_call.get("id", ""),
-                            status="error",
-                        )
         return None

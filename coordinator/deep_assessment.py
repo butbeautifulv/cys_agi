@@ -10,7 +10,12 @@ from cys_core.persistence import get_persistence_connector
 from cys_core.registry.agents import get_agent_registry
 from cys_core.registry.product_context import get_product_context
 from cys_core.registry.tools import tool_registry
+from cys_core.domain.security.exceptions import SecurityViolation
+from cys_core.domain.security.factory import get_input_sanitizer
+from cys_core.domain.security.prompt_context import REFUSAL_MESSAGE
 from cys_core.runtime.agent import get_runtime, make_assessment_pipeline_tool, make_async_assessment_pipeline_tool
+
+_sanitizer = get_input_sanitizer()
 
 
 def create_assessment_coordinator(persistence: PersistenceContext | None = None, *, async_tools: bool = False):
@@ -84,10 +89,14 @@ def run_session(
     persistence: PersistenceContext | None = None,
 ) -> dict[str, Any]:
     """Run a long-running Deep Agent assessment session."""
+    try:
+        sanitized_goal = _sanitizer.sanitize(goal, source="user")
+    except SecurityViolation:
+        return {"error": REFUSAL_MESSAGE, "messages": []}
     agent = create_assessment_coordinator(persistence)
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 50}
     result = agent.invoke(
-        {"messages": [{"role": "user", "content": goal}]},
+        {"messages": [{"role": "user", "content": sanitized_goal}]},
         config=config,
     )
     return dict(result)
@@ -100,10 +109,14 @@ async def run_session_async(
     persistence: PersistenceContext | None = None,
 ) -> dict[str, Any]:
     """Run a long-running Deep Agent assessment session from async callers."""
+    try:
+        sanitized_goal = _sanitizer.sanitize(goal, source="user")
+    except SecurityViolation:
+        return {"error": REFUSAL_MESSAGE, "messages": []}
     agent = await create_assessment_coordinator_async(persistence)
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 50}
     result = await agent.ainvoke(
-        {"messages": [{"role": "user", "content": goal}]},
+        {"messages": [{"role": "user", "content": sanitized_goal}]},
         config=config,
     )
     return dict(result)

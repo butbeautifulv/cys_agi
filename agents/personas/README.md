@@ -19,7 +19,7 @@
 | `name` | Уникальный идентификатор |
 | `description` | Краткое описание |
 | `role` | `specialist` \| `critic` \| `coordinator` |
-| `output_schema` | Имя Pydantic schema из `cys_core/registry/schemas.py` |
+| `output_schema` | Имя schema из `cys_core/domain/findings/models.py` (регистрация в `registry/schemas.py`) |
 | `tools` | Список tools из `ToolRegistry` |
 | `hitl_tools` | Tools требующие human approval |
 | `trust_level` | `untrusted` \| `internal` \| `privileged` \| `system` |

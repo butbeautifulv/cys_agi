@@ -17,6 +17,7 @@ dependencies = [
     "psycopg[binary]>=3.3.0",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
+    "rapidfuzz>=3.13.0",
     "pytest>=9.0.0",
     "pytest-asyncio>=1.4.0",
     "redis>=8.0.0",
@@ -27,6 +28,19 @@ dependencies = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "unit: fast isolated tests",
+    "integration: multi-module wiring",
+    "adversarial: security abuse cases",
+]
+addopts = "--strict-markers"
+
+[tool.coverage.run]
+source = ["cys_core/domain"]
+omit = ["*/__init__.py"]
+
+[tool.coverage.report]
+fail_under = 100
 
 [dependency-groups]
 dev = [

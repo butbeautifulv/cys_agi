@@ -152,7 +152,7 @@ class SecureAgentBus:
         result: dict[str, Any] = {}
         for key, value in payload.items():
             if isinstance(value, str):
-                result[key] = self.sanitizer.sanitize(value).replace("<untrusted_data>\n", "").replace("\n</untrusted_data>", "")
+                result[key] = self.sanitizer.filter_untrusted(value, source="agent_bus")
             else:
                 result[key] = value
         return result

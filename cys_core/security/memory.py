@@ -1,21 +1,11 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from datetime import datetime, timedelta, timezone
 
-INJECTION_PATTERNS = [
-    r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions",
-    r"disregard\s+(all\s+)?(previous|prior|system)\s+",
-    r"you\s+are\s+now\s+",
-]
-
-SENSITIVE_PATTERNS = [
-    r"\b\d{3}-\d{2}-\d{4}\b",
-    r"\b\d{16}\b",
-    r"password\s*[:=]\s*\S+",
-    r"api[_-]?key\s*[:=]\s*\S+",
-]
+from cys_core.domain.security.factory import get_input_sanitizer
+from cys_core.domain.security.redaction import RedactionService
+from cys_core.domain.security.sanitizer import InjectionVerdict
 
 
 class SecureAgentMemory:
@@ -29,15 +19,17 @@ class SecureAgentMemory:
         self.user_id = user_id
         self.signing_key = signing_key or b"cys-agi-default-key"
         self.memories: list[dict] = []
+        self._sanitizer = get_input_sanitizer()
+        self._redaction = RedactionService()
 
     def add(self, content: str, memory_type: str = "conversation") -> None:
-        if self._contains_injection(content):
+        if self._sanitizer.classify(content) is not InjectionVerdict.NONE:
             return
         if len(content) > self.MAX_ITEM_LENGTH:
             content = content[: self.MAX_ITEM_LENGTH]
-        if self._contains_sensitive_data(content):
-            content = self._redact_sensitive_data(content)
-        content = self._sanitize_injection_attempts(content)
+        if self._redaction.contains_sensitive_data(content):
+            content = self._redaction.redact_pii(content)
+        content = self._sanitizer.filter_patterns(content)
         entry = {
             "content": content,
             "type": memory_type,
@@ -56,22 +48,6 @@ class SecureAgentMemory:
             if mem_time > cutoff and self._verify_checksum(mem):
                 valid.append(mem["content"])
         return valid
-
-    def _contains_injection(self, content: str) -> bool:
-        return any(re.search(p, content, re.I) for p in INJECTION_PATTERNS)
-
-    def _contains_sensitive_data(self, content: str) -> bool:
-        return any(re.search(p, content, re.I) for p in SENSITIVE_PATTERNS)
-
-    def _redact_sensitive_data(self, content: str) -> str:
-        for pattern in SENSITIVE_PATTERNS:
-            content = re.sub(pattern, "[REDACTED]", content, flags=re.I)
-        return content
-
-    def _sanitize_injection_attempts(self, content: str) -> str:
-        for pattern in INJECTION_PATTERNS:
-            content = re.sub(pattern, "[FILTERED]", content, flags=re.I)
-        return content
 
     def _compute_checksum(self, content: str) -> str:
         return hashlib.sha256((content + self.user_id).encode() + self.signing_key).hexdigest()[:16]

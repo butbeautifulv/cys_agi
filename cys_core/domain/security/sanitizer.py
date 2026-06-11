@@ -1,19 +1,35 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import re
+from enum import Enum
 from typing import Any
 
-INJECTION_PATTERNS = [
-    r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions",
-    r"disregard\s+(all\s+)?(previous|prior|system)\s+",
-    r"you\s+are\s+now\s+",
-    r"new\s+system\s+prompt",
-    r"<\s*/?\s*system\s*>",
-    r"\[INST\]",
-    r"###\s*instruction",
-]
+from rapidfuzz.distance import Levenshtein
+
+from cys_core.domain.security.exceptions import SecurityViolation
+from cys_core.domain.security.injection_patterns import (
+    BASE64_TOKEN,
+    FUZZY_DISTANCE_THRESHOLD,
+    FUZZY_KEYWORDS,
+    HARD_INJECTION_PATTERNS,
+    HEX_TOKEN,
+    INJECTION_PATTERNS,
+    MIN_FUZZY_WORD_LENGTH,
+    SOFT_INJECTION_PATTERNS,
+    ZERO_WIDTH_CHARS,
+)
+from cys_core.domain.security.prompt_context import UntrustedSource, wrap_user_data
 
 MAX_INPUT_LENGTH = 50_000
+FILTERED_MARKER = "[FILTERED_INJECTION]"
+
+
+class InjectionVerdict(str, Enum):
+    NONE = "none"
+    SOFT = "soft"
+    HARD = "hard"
 
 
 class InputSanitizer:
@@ -21,31 +37,125 @@ class InputSanitizer:
 
     def __init__(self, max_length: int = MAX_INPUT_LENGTH) -> None:
         self.max_length = max_length
-        self._compiled = [re.compile(p, re.IGNORECASE) for p in INJECTION_PATTERNS]
+        self._hard = [re.compile(p, re.IGNORECASE) for p in HARD_INJECTION_PATTERNS]
+        self._soft = [re.compile(p, re.IGNORECASE) for p in SOFT_INJECTION_PATTERNS]
+        self._all = [re.compile(p, re.IGNORECASE) for p in INJECTION_PATTERNS]
 
-    def sanitize(self, content: str) -> str:
-        if len(content) > self.max_length:
-            content = content[: self.max_length]
-        for pattern in self._compiled:
-            content = pattern.sub("[FILTERED_INJECTION]", content)
-        return self.wrap_untrusted(content)
+    def classify(self, content: str) -> InjectionVerdict:
+        normalized = self._normalize(content)
+        if self._matches_hard(normalized):
+            return InjectionVerdict.HARD
+        if self._matches_encoded_hard(content) or self._matches_encoded_hard(normalized):
+            return InjectionVerdict.HARD
+        if self._matches_soft(normalized) or self._matches_fuzzy(normalized):
+            return InjectionVerdict.SOFT
+        if self._matches_encoded_soft(content) or self._matches_encoded_soft(normalized):
+            return InjectionVerdict.SOFT
+        return InjectionVerdict.NONE
+
+    def sanitize(self, content: str, *, source: UntrustedSource = "user") -> str:
+        if content.strip().startswith("USER_DATA_TO_PROCESS"):
+            return content
+        verdict = self.classify(content)
+        if verdict is InjectionVerdict.HARD:
+            raise SecurityViolation("Prompt injection detected in untrusted input")
+        body = self._normalize(content)
+        if len(body) > self.max_length:
+            body = body[: self.max_length]
+        for pattern in self._all:
+            body = pattern.sub(FILTERED_MARKER, body)
+        return self.wrap_untrusted(body, source=source)
 
     @staticmethod
-    def wrap_untrusted(content: str) -> str:
-        return f"<untrusted_data>\n{content}\n</untrusted_data>"
+    def wrap_untrusted(content: str, *, source: UntrustedSource = "user") -> str:
+        if content.strip().startswith("USER_DATA_TO_PROCESS"):
+            return content
+        return wrap_user_data(content, source=source)
 
-    def sanitize_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def sanitize_payload(self, payload: dict[str, Any], *, source: UntrustedSource = "user") -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, value in payload.items():
             if isinstance(value, str):
-                result[key] = self.sanitize(value)
+                result[key] = self.sanitize(value, source=source)
             elif isinstance(value, dict):
-                result[key] = self.sanitize_payload(value)
+                result[key] = self.sanitize_payload(value, source=source)
             elif isinstance(value, list):
                 result[key] = [
-                    self.sanitize(v) if isinstance(v, str) else v for v in value
+                    self.sanitize(v, source=source) if isinstance(v, str) else v for v in value
                 ]
             else:
                 result[key] = value
         return result
 
+    def filter_patterns(self, content: str) -> str:
+        """Replace injection patterns without wrapping (internal storage paths)."""
+        body = self._normalize(content)
+        if len(body) > self.max_length:
+            body = body[: self.max_length]
+        for pattern in self._all:
+            body = pattern.sub(FILTERED_MARKER, body)
+        return body
+
+    def filter_untrusted(self, content: str, *, source: UntrustedSource = "user") -> str:
+        """Filter and wrap without blocking (internal transports)."""
+        if content.strip().startswith("USER_DATA_TO_PROCESS"):
+            return content
+        body = self._normalize(content)
+        if len(body) > self.max_length:
+            body = body[: self.max_length]
+        for pattern in self._all:
+            body = pattern.sub(FILTERED_MARKER, body)
+        return self.wrap_untrusted(body, source=source)
+
+    def _normalize(self, content: str) -> str:
+        content = ZERO_WIDTH_CHARS.sub(" ", content)
+        content = re.sub(r"\s+", " ", content)
+        content = re.sub(r"(.)\1{3,}", r"\1", content)
+        return content.strip()
+
+    def _matches_hard(self, content: str) -> bool:
+        return any(p.search(content) for p in self._hard)
+
+    def _matches_soft(self, content: str) -> bool:
+        return any(p.search(content) for p in self._soft)
+
+    def _matches_fuzzy(self, content: str) -> bool:
+        words = re.findall(r"\b\w+\b", content.lower())
+        for word in words:
+            if len(word) < MIN_FUZZY_WORD_LENGTH:
+                continue
+            for keyword in FUZZY_KEYWORDS:
+                if Levenshtein.distance(word, keyword) <= FUZZY_DISTANCE_THRESHOLD:
+                    return True
+        return False
+
+    def _matches_encoded_hard(self, content: str) -> bool:
+        for decoded in self._decode_candidates(content):
+            if self._matches_hard(self._normalize(decoded)):
+                return True
+        return False
+
+    def _matches_encoded_soft(self, content: str) -> bool:
+        for decoded in self._decode_candidates(content):
+            normalized = self._normalize(decoded)
+            if self._matches_soft(normalized) or self._matches_fuzzy(normalized):
+                return True
+        return False
+
+    def _decode_candidates(self, content: str) -> list[str]:
+        candidates: list[str] = []
+        for match in BASE64_TOKEN.findall(content):
+            try:
+                decoded = base64.b64decode(match, validate=True).decode("utf-8", errors="ignore")
+                if decoded.strip():
+                    candidates.append(decoded)
+            except (binascii.Error, ValueError):
+                continue
+        for match in HEX_TOKEN.findall(content):
+            try:
+                decoded = bytes.fromhex(match).decode("utf-8", errors="ignore")
+                if decoded.strip():
+                    candidates.append(decoded)
+            except ValueError:
+                continue
+        return candidates

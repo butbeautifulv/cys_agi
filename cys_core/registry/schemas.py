@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from cys_core.schemas.findings import (
+from cys_core.domain.findings.models import (
     ComplianceFinding,
     CriticResult,
     NetworkFinding,

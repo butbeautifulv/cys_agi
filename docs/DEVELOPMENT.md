@@ -4,7 +4,7 @@
 
 ```bash
 # Python 3.13+
-uv sync
+uv sync --group dev
 
 # Инфраструктура
 docker compose up -d
@@ -57,13 +57,16 @@ python main.py session -g "Analyze workflow risks" --thread-id sess-001
 ## Тестирование
 
 ```bash
-# Все тесты
-USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/ -v
+# Все тесты + coverage gate (100% domain)
+USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/ -v --cov=cys_core/domain
 
-# Registry (personas, rules, runtime)
+# По слоям
+uv run pytest tests/domain/ -v
+uv run pytest tests/middleware/ -v
+uv run pytest tests/infrastructure/ -v
+uv run pytest tests/graph/ -v
+uv run pytest tests/coordinator/ -v
 uv run pytest tests/registry/ -v
-
-# Adversarial security
 uv run pytest tests/adversarial/ -v
 
 # Один тест
@@ -115,7 +118,7 @@ You are MyAgent. Analyze ...
 
 ### 4. Schema (если новая)
 
-`cys_core/registry/schemas.py`:
+Модель в `cys_core/domain/findings/models.py`:
 
 ```python
 class MyFinding(BaseModel):
@@ -124,7 +127,7 @@ class MyFinding(BaseModel):
     ...
 ```
 
-Зарегистрировать в `schema_registry`.
+Зарегистрировать в `cys_core/registry/schemas.py` (`_SCHEMAS` / `schema_registry`).
 
 ### 5. Tool (если новый)
 
@@ -195,15 +198,15 @@ Callbacks подключаются в `AgentRuntime` через `get_langfuse_ca
 
 ```
 tests/
-├── registry/
-│   ├── test_agent_registry.py
-│   ├── test_product_context.py
-│   └── test_runtime.py
-└── adversarial/
-    ├── test_prompt_override.py
-    ├── test_data_exfiltration.py
-    ├── test_tool_misuse.py
-    └── ...
+├── domain/           # unit-тесты domain-политик (sanitizer, scope, hitl, findings)
+├── middleware/       # LangChain middleware adapters
+├── infrastructure/   # persistence, llm, rate_limit, memory, monitor, CLI
+├── graph/            # LangGraph workflow и nodes
+├── coordinator/      # Deep Agents wiring
+├── registry/         # smoke против реального agents/
+└── adversarial/      # security abuse scenarios
 ```
+
+Coverage gate: **100%** на `cys_core/domain` (`pyproject.toml`, `fail_under = 100`).
 
 Adversarial тесты не требуют LLM — проверяют security primitives напрямую.

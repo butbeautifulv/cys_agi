@@ -12,9 +12,10 @@ Secure async multi-agent cybersecurity assessment platform with DDD boundaries, 
 - Secure-by-design deployment profile: MILS boundaries, A2A envelopes, mTLS identity, non-root hardened containers
 - Async-ready runtime: `AgentRuntime.arun()`, `run_assessment_async()`, `run_session_async()`
 - Provider-agnostic LLM через LiteLLM (Anthropic, OpenAI, Gemini, OpenRouter)
-- Security layer: sanitization, guardrails, rate limiting, agent bus, HITL
+- Domain security: `PromptContextMiddleware`, structured system/user prompt separation, scope/redaction policies
+- Infrastructure security: rate limiting, memory protection, security monitoring
 - Продуктовый слой `agents/` — personas, rules, plans, skills
-- 100% unit test coverage for platform modules
+- 100% unit test coverage gate on `cys_core/domain`
 
 ## Быстрый старт
 
@@ -105,12 +106,12 @@ cys-agi/
 │   ├── llm/                # LiteLLM provider
 │   ├── registry/           # AgentRegistry, tools, schemas
 │   ├── runtime/            # AgentRuntime sync/async APIs
-│   ├── security/           # compatibility exports + infra helpers
-│   └── middleware/         # scope, security middleware
+│   ├── security/           # infrastructure only (monitor, memory, rate_limit)
+│   └── middleware/         # scope, prompt context, security middleware
 ├── graph/                  # LangGraph pipeline
 ├── coordinator/            # Deep Agents sessions
 ├── docs/                   # Документация
-├── tests/                  # registry + adversarial
+├── tests/                  # domain, middleware, infrastructure, graph, coordinator, registry, adversarial
 ├── main.py                 # CLI entrypoint
 └── config.py               # Pydantic settings
 ```
@@ -144,20 +145,19 @@ cys-agi/
 ## Тестирование
 
 ```bash
-# Все тесты (in-memory persistence)
-USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/ -q
+# Все тесты + coverage gate (100% domain)
+USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/ -q --cov=cys_core/domain
 
-# Только registry
+# По слоям
+uv run pytest tests/domain/ -q
 uv run pytest tests/registry/ -q
-
-# Только adversarial
 uv run pytest tests/adversarial/ -q
 ```
 
 ## Добавление агента
 
 1. Создать `agents/personas/<name>/` с `agent.yaml`, `AGENT.md`, `samples/default.txt`
-2. При необходимости — schema в `cys_core/registry/schemas.py`, tool в `tools.py`
+2. При необходимости — schema в `cys_core/domain/findings/models.py` + регистрация в `registry/schemas.py`, tool в `tools.py`
 3. Записать в `agents/manifest.yaml`
 4. `pytest tests/registry/`
 
@@ -169,8 +169,8 @@ uv run pytest tests/adversarial/ -q
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Архитектура и data flow |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Разработка и отладка |
 | [docs/SECURE_DEPLOYMENT.md](docs/SECURE_DEPLOYMENT.md) | Secure deployment, MILS, A2A/mTLS, container hardening |
+| [docs/reference/](docs/reference/) | Security cheat sheets (prompt injection, RAG, Zero Trust, …) |
 | [agents/README.md](agents/README.md) | Продуктовый слой |
-| [docs/AI_Agent_Security_Cheat_Sheet.md](docs/AI_Agent_Security_Cheat_Sheet.md) | Security reference |
 
 ## Требования
 

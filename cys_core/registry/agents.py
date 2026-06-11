@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from cys_core.registry.models import AgentConfig, AgentDefinition
+from cys_core.domain.agents.models import AgentConfig, AgentDefinition
 from cys_core.registry.product_context import ProductContext, default_agents_root
 
 PROMPT_FILENAMES = ("AGENT.md", "SKILL.md")
@@ -64,15 +64,16 @@ class AgentRegistry:
             _, body = _parse_prompt_md(prompt_path)
             sample_path = agent_dir / config.sample
             sample_input = sample_path.read_text(encoding="utf-8").strip() if sample_path.exists() else None
-            system_prompt = body
+            persona = body
             if config.language == "ru":
-                system_prompt = f"{body}{LANGUAGE_SUFFIX}"
-            system_prompt = product.augment_prompt(system_prompt)
+                persona = f"{body}{LANGUAGE_SUFFIX}"
+            system_ctx = product.build_system_context(persona)
             agents[config.name] = AgentDefinition(
                 name=config.name,
                 description=config.description,
                 role=config.role,
-                system_prompt=system_prompt,
+                system_prompt=system_ctx.text,
+                system_prompt_digest=system_ctx.digest,
                 schema_name=config.output_schema,
                 tools=config.tools,
                 hitl_tools=config.hitl_tools,

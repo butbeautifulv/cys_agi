@@ -14,4 +14,5 @@ def test_rules_augment_prompt():
     ctx = ProductContext()
     augmented = ctx.augment_prompt("Base prompt.")
     assert "Base prompt." in augmented
-    assert "## Global rules" in augmented
+    assert "GLOBAL_RULES:" in augmented
+    assert "SECURITY_RULES:" in augmented
