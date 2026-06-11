@@ -12,6 +12,7 @@ cp .env.example .env
 |---------|------|-------------|
 | Postgres 16 | 5432 | `postgres` / `password`, DB `cys_agi` |
 | Redis 7 | 6379 | password `password` |
+| Redpanda (Kafka) | 9092 / 9644 / 8082 | none (dev-container) |
 
 ## Режимы работы
 
@@ -27,6 +28,30 @@ cp .env.example .env
 USE_MEMORY_FALLBACK=true STAGE=dev python main.py ingest -t siem.alert -p '{"alert":"test"}'
 USE_MEMORY_FALLBACK=true STAGE=dev python main.py worker --once
 ```
+
+## Kafka / Redpanda (Phase 1)
+
+Event bus для production-пути (Ingress → Kafka → router → worker daemon).
+Локально поднимается через `docker compose` (single-node Redpanda, `dev-container`).
+
+```bash
+docker compose up -d redpanda
+
+# Health и список топиков (rpk внутри контейнера)
+docker compose exec redpanda rpk cluster health
+docker compose exec redpanda rpk topic list
+
+# Создать топики Phase 1 вручную (по желанию)
+docker compose exec redpanda rpk topic create security.events.raw worker.jobs.soc bus.findings
+```
+
+| Переменная | Default | Назначение |
+|------------|---------|------------|
+| `USE_KAFKA` | `false` | Включает Kafka-путь (порты добавляются в P1.2.x) |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Адрес брокера (внутри compose — `redpanda:29092`) |
+
+Пока `USE_KAFKA=false` — primary queue/bus остаётся Redis (`InMemory` fallback в `STAGE=test`).
+Включение Kafka-портов (`KafkaJobQueue`, `KafkaBusTransport`) — подфазы P1.2.x.
 
 ## CLI для отладки
 
