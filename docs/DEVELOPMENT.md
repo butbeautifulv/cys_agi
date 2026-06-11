@@ -12,6 +12,9 @@ cp .env.example .env
 |---------|------|-------------|
 | Postgres 16 | 5432 | `postgres` / `password`, DB `cys_agi` |
 | Redis 7 | 6379 | password `password` |
+| Redpanda | 9092 | no auth (dev) |
+| Redpanda Schema Registry | 8081 | — |
+| Redpanda HTTP Proxy | 8082 | — |
 
 ## Режимы работы
 
@@ -19,7 +22,8 @@ cp .env.example .env
 |-------|-------------|-----------|
 | `test` | memory | in-memory fallback |
 | `dev` | Postgres (fallback memory) | Redis or memory |
-| `prod` | Postgres | Redis |
+| `dev` + `USE_KAFKA=true` | Postgres | Redpanda/Kafka |
+| `prod` | Postgres | Redpanda/Kafka |
 
 Локально без Docker:
 
@@ -27,6 +31,42 @@ cp .env.example .env
 USE_MEMORY_FALLBACK=true STAGE=dev python main.py ingest -t siem.alert -p '{"alert":"test"}'
 USE_MEMORY_FALLBACK=true STAGE=dev python main.py worker --once
 ```
+
+## Kafka / Redpanda (Phase 1+)
+
+Redpanda — Kafka-совместимый брокер, используется для event bus в prod.
+
+### Запуск с Kafka
+
+```bash
+# Запустить все сервисы включая Redpanda
+docker compose up -d
+
+# Проверить состояние кластера
+docker compose exec redpanda rpk cluster health
+
+# Список топиков
+docker compose exec redpanda rpk topic list
+
+# Запустить с Kafka включённым
+USE_KAFKA=true python main.py ingest -t siem.alert -p '{"alert":"test"}'
+USE_KAFKA=true python main.py worker --once
+```
+
+### Kafka topics
+
+| Topic | Producer | Consumer | Retention |
+|-------|----------|----------|-----------|
+| `security.events.raw` | Ingress API | router-consumer | 7d |
+| `worker.jobs.{persona}` | router | worker-{persona} daemon | 3d |
+| `bus.findings` | workers | critic, coordinator | 30d |
+| `security.events.escalation` | critic, workers | router | 7d |
+| `worker.jobs.dlq` | workers | DLQ consumer | 7d |
+
+### Feature flag
+
+`USE_KAFKA=false` (default) → Redis queue + in-memory bus (backward compatible).
+`USE_KAFKA=true` → KafkaJobQueue + KafkaBusTransport.
 
 ## CLI для отладки
 
