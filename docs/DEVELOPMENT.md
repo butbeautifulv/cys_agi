@@ -12,14 +12,47 @@ cp .env.example .env
 |---------|------|-------------|
 | Postgres 16 | 5432 | `postgres` / `password`, DB `cys_agi` |
 | Redis 7 | 6379 | password `password` |
+| Redpanda (Kafka API) | 19092 | no auth (dev) |
+
+## Kafka / Redpanda (event bus)
+
+Redpanda поднимается вместе с остальным стеком:
+
+```bash
+docker compose up -d redpanda
+```
+
+Проверка:
+
+```bash
+docker compose exec redpanda rpk topic list
+```
+
+Переменные окружения (см. `.env.example`):
+
+| Variable | Default | Описание |
+|----------|---------|----------|
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` | Bootstrap для Kafka-клиентов |
+| `USE_KAFKA` | `false` | Включить Kafka queue/bus (Phase 1.2+) |
+
+Пока `USE_KAFKA=false`, приложение использует in-memory/Redis fallback — main остаётся зелёным без Redpanda.
+
+Целевые топики (создаются в Phase 1.2+):
+
+| Topic | Назначение |
+|-------|------------|
+| `security.events.raw` | Сырые события с ingress |
+| `worker.jobs.{persona}` | Jobs для worker daemon |
+| `bus.findings` | Findings от workers |
+| `security.events.escalation` | Escalation events |
 
 ## Режимы работы
 
 | STAGE | Persistence | Queue/Bus |
 |-------|-------------|-----------|
 | `test` | memory | in-memory fallback |
-| `dev` | Postgres (fallback memory) | Redis or memory |
-| `prod` | Postgres | Redis |
+| `dev` | Postgres (fallback memory) | Redis/memory; Kafka при `USE_KAFKA=true` |
+| `prod` | Postgres | Kafka (`USE_KAFKA=true`) |
 
 Локально без Docker:
 
