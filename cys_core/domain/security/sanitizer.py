@@ -21,6 +21,10 @@ from cys_core.domain.security.patterns import (
     MIN_FUZZY_WORD_LENGTH,
     SOFT_INJECTION_PATTERNS,
     TOKEN_PATTERN,
+    UNICODE_TAG_SMUGGLING_THRESHOLD,
+    count_unicode_tags,
+    is_mixed_script_smuggling,
+    latin_skeleton_for_detection,
     normalize_input,
 )
 from cys_core.domain.security.prompt_context import UntrustedSource, wrap_user_data
@@ -46,13 +50,25 @@ class InputSanitizer:
 
     def classify(self, content: str) -> InjectionVerdict:
         normalized = self._normalize(content)
-        if self._matches_hard(normalized):
+        skeleton = latin_skeleton_for_detection(content)
+        candidates = [normalized]
+        if skeleton and skeleton != normalized:
+            candidates.append(skeleton)
+        if self._matches_any_hard(candidates):
             return InjectionVerdict.HARD
-        if self._matches_encoded_hard(content) or self._matches_encoded_hard(normalized):
+        if self._matches_encoded_hard(content) or any(
+            self._matches_encoded_hard(candidate) for candidate in candidates
+        ):
             return InjectionVerdict.HARD
-        if self._matches_soft(normalized) or self._matches_fuzzy(normalized):
+        if self._has_unicode_tag_smuggling(content) or is_mixed_script_smuggling(content):
             return InjectionVerdict.SOFT
-        if self._matches_encoded_soft(content) or self._matches_encoded_soft(normalized):
+        if self._matches_any_soft(candidates) or any(
+            self._matches_fuzzy(candidate) for candidate in candidates
+        ):
+            return InjectionVerdict.SOFT
+        if self._matches_encoded_soft(content) or any(
+            self._matches_encoded_soft(candidate) for candidate in candidates
+        ):
             return InjectionVerdict.SOFT
         return InjectionVerdict.NONE
 
@@ -118,6 +134,16 @@ class InputSanitizer:
 
     def _matches_soft(self, content: str) -> bool:
         return any(p.search(content) for p in self._soft)
+
+    def _matches_any_hard(self, candidates: list[str]) -> bool:
+        return any(self._matches_hard(candidate) for candidate in candidates)
+
+    def _matches_any_soft(self, candidates: list[str]) -> bool:
+        return any(self._matches_soft(candidate) for candidate in candidates)
+
+    @staticmethod
+    def _has_unicode_tag_smuggling(content: str) -> bool:
+        return count_unicode_tags(content) >= UNICODE_TAG_SMUGGLING_THRESHOLD
 
     def _matches_fuzzy(self, content: str) -> bool:
         words = TOKEN_PATTERN.findall(content.lower())

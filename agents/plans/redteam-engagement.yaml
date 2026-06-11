@@ -1,0 +1,11 @@
+id: redteam-engagement
+name: Red team engagement
+description: Authorized offensive analysis worker
+
+routing:
+  rules:
+    - event_types: [escalation, manual.investigation]
+      min_severity: high
+      personas: [redteam]
+      playbook_id: redteam-engagement
+      notify_control: true

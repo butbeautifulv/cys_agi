@@ -1,7 +1,7 @@
 [project]
 name = "cys-agi"
 version = "0.1.0"
-description = "Secure multi-agent cybersecurity assessment platform"
+description = "Event-driven multi-agent cybersecurity platform with ephemeral sandbox workers"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
@@ -22,6 +22,8 @@ dependencies = [
     "pytest-asyncio>=1.4.0",
     "redis>=8.0.0",
     "structlog>=26.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
 ]
 
 [tool.pytest.ini_options]
@@ -45,4 +47,5 @@ fail_under = 100
 [dependency-groups]
 dev = [
     "pytest-cov>=7.1.0",
+    "httpx>=0.28.0",
 ]

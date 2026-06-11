@@ -4,7 +4,7 @@ from cys_core.registry.product_context import ProductContext
 def test_product_context_loads_manifest_and_rules():
     ctx = ProductContext()
     assert ctx.manifest.name == "cys-agi"
-    assert ctx.manifest.default_plan == "full-assessment"
+    assert ctx.manifest.default_plan == "incident-triage"
     assert "Security rules" in ctx.rules_block or "security" in ctx.rules_block.lower()
     assert ctx.personas_dir.is_dir()
     assert ctx.skills_dir.is_dir()

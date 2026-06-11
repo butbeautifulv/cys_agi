@@ -6,6 +6,10 @@ from cys_core.domain.security.patterns.common import (
     HEX_TOKEN,
     SOFT_COMMON_PATTERNS,
 )
+from cys_core.domain.security.patterns.corpus_techniques import (
+    HARD_CORPUS_TECHNIQUE_PATTERNS,
+    SOFT_CORPUS_TECHNIQUE_PATTERNS,
+)
 from cys_core.domain.security.patterns.fuzzy_keywords import (
     FUZZY_DISTANCE_THRESHOLD,
     FUZZY_KEYWORDS,
@@ -39,9 +43,16 @@ from cys_core.domain.security.patterns.injection_zh import (
 )
 from cys_core.domain.security.patterns.normalization import (
     TOKEN_PATTERN,
+    UNICODE_TAG_CHARS,
+    UNICODE_TAG_SMUGGLING_THRESHOLD,
     ZERO_WIDTH_CHARS,
+    count_unicode_tags,
     fold_confusables,
+    is_mixed_script_smuggling,
+    latin_skeleton_for_detection,
+    mixed_script_category_count,
     normalize_input,
+    strip_combining_marks,
 )
 from cys_core.domain.security.patterns.pii_common import (
     PII_PATTERNS_COMMON,
@@ -58,6 +69,7 @@ from cys_core.domain.security.patterns.pii_zh import PII_PATTERNS_ZH
 
 HARD_INJECTION_PATTERNS = (
     HARD_COMMON_PATTERNS
+    + HARD_CORPUS_TECHNIQUE_PATTERNS
     + HARD_INJECTION_PATTERNS_EN
     + HARD_INJECTION_PATTERNS_RU
     + HARD_INJECTION_PATTERNS_ES
@@ -68,6 +80,7 @@ HARD_INJECTION_PATTERNS = (
 
 SOFT_INJECTION_PATTERNS = (
     SOFT_COMMON_PATTERNS
+    + SOFT_CORPUS_TECHNIQUE_PATTERNS
     + SOFT_INJECTION_PATTERNS_EN
     + SOFT_INJECTION_PATTERNS_RU
     + SOFT_INJECTION_PATTERNS_ES
@@ -106,7 +119,14 @@ __all__ = [
     "SENSITIVE_KEYS",
     "SOFT_INJECTION_PATTERNS",
     "TOKEN_PATTERN",
+    "UNICODE_TAG_CHARS",
+    "UNICODE_TAG_SMUGGLING_THRESHOLD",
     "ZERO_WIDTH_CHARS",
+    "count_unicode_tags",
     "fold_confusables",
+    "is_mixed_script_smuggling",
+    "latin_skeleton_for_detection",
+    "mixed_script_category_count",
     "normalize_input",
+    "strip_combining_marks",
 ]

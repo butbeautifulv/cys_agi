@@ -1,82 +1,44 @@
+"""Deprecated batch LangGraph assessment pipeline.
+
+Replaced by event-driven ingress (ingress/router.py) and worker orchestrator (workers/orchestrator.py).
+Kept for backward-compatible imports only.
+"""
+
 from __future__ import annotations
 
-import asyncio
+import warnings
 from typing import Any
 
-from langgraph.graph import END, START, StateGraph
-from langgraph.types import Command
-
-from cys_core.application.ports import PersistenceContext
-from cys_core.persistence import get_persistence_connector
-from graph.dag import assessment_dag
-from graph.nodes import (
-    critic_node,
-    dispatch_node,
-    hitl_gate_node,
-    ingest_node,
-    report_node,
-    run_agent_node,
+warnings.warn(
+    "graph.workflow.run_assessment is deprecated; use ingress.router.EventIngress instead",
+    DeprecationWarning,
+    stacklevel=2,
 )
-from graph.state import AssessmentState
-
-_compiled_graph = None
-_compiled_async_graph = None
 
 
-def build_assessment_graph(persistence: PersistenceContext | None = None):
-    """Compile LangGraph security assessment pipeline."""
-    global _compiled_graph
-    if _compiled_graph is not None and persistence is None:
-        return _compiled_graph
+async def run_assessment_async(
+    user_input: str,
+    *,
+    thread_id: str = "assessment-001",
+    scope: dict[str, Any] | None = None,
+    persistence: Any = None,
+    resume: bool | dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from ingress.router import get_event_ingress as _get_event_ingress
 
-    assessment_dag().validate_acyclic()
-    stack = persistence or get_persistence_connector().open()
-    graph = StateGraph(AssessmentState)
-    graph.add_node("ingest", ingest_node)
-    graph.add_node("run_agent", run_agent_node)
-    graph.add_node("critic", critic_node)
-    graph.add_node("hitl_gate", hitl_gate_node)
-    graph.add_node("report", report_node)
-
-    graph.add_edge(START, "ingest")
-    graph.add_conditional_edges("ingest", dispatch_node)
-    graph.add_edge("run_agent", "critic")
-    graph.add_edge("critic", "hitl_gate")
-    graph.add_edge("hitl_gate", "report")
-    graph.add_edge("report", END)
-
-    compiled = graph.compile(checkpointer=stack.checkpointer)
-    if persistence is None:
-        _compiled_graph = compiled
-    return compiled
-
-
-async def build_assessment_graph_async(persistence: PersistenceContext | None = None):
-    """Compile LangGraph security assessment pipeline for async callers."""
-    global _compiled_async_graph
-    if _compiled_async_graph is not None and persistence is None:
-        return _compiled_async_graph
-
-    assessment_dag().validate_acyclic()
-    stack = persistence or await get_persistence_connector().open_async()
-    graph = StateGraph(AssessmentState)
-    graph.add_node("ingest", ingest_node)
-    graph.add_node("run_agent", run_agent_node)
-    graph.add_node("critic", critic_node)
-    graph.add_node("hitl_gate", hitl_gate_node)
-    graph.add_node("report", report_node)
-
-    graph.add_edge(START, "ingest")
-    graph.add_conditional_edges("ingest", dispatch_node)
-    graph.add_edge("run_agent", "critic")
-    graph.add_edge("critic", "hitl_gate")
-    graph.add_edge("hitl_gate", "report")
-    graph.add_edge("report", END)
-
-    compiled = graph.compile(checkpointer=stack.checkpointer)
-    if persistence is None:
-        _compiled_async_graph = compiled
-    return compiled
+    ingress = _get_event_ingress()
+    event, decision, job_ids = await ingress.aingest(
+        "manual.investigation",
+        {"raw_input": user_input, "scope": scope or {}},
+        correlation_id=thread_id,
+    )
+    return {
+        "deprecated": True,
+        "event": event.model_dump(),
+        "routing": decision.model_dump(),
+        "job_ids": job_ids,
+        "resume": resume,
+    }
 
 
 def run_assessment(
@@ -84,10 +46,11 @@ def run_assessment(
     *,
     thread_id: str = "assessment-001",
     scope: dict[str, Any] | None = None,
-    persistence: PersistenceContext | None = None,
+    persistence: Any = None,
     resume: bool | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run full assessment pipeline from synchronous callers."""
+    import asyncio
+
     return asyncio.run(
         run_assessment_async(
             user_input,
@@ -99,33 +62,11 @@ def run_assessment(
     )
 
 
-async def run_assessment_async(
-    user_input: str,
-    *,
-    thread_id: str = "assessment-001",
-    scope: dict[str, Any] | None = None,
-    persistence: PersistenceContext | None = None,
-    resume: bool | dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Run full assessment pipeline from async callers."""
-    graph = await build_assessment_graph_async(persistence)
-    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 25}
+async def build_assessment_graph_async(persistence: Any = None):
+    warnings.warn("build_assessment_graph_async is deprecated", DeprecationWarning, stacklevel=2)
+    return None
 
-    if resume is not None:
-        result = await graph.ainvoke(Command(resume=resume), config=config)
-        return dict(result)
 
-    initial: AssessmentState = {
-        "raw_input": user_input,
-        "sanitized_input": "",
-        "scope": scope or {"authorized": True},
-        "session_id": thread_id,
-        "findings": [],
-        "critic_result": None,
-        "pending_approval": None,
-        "report": None,
-        "errors": [],
-        "approved": False,
-    }
-    result = await graph.ainvoke(initial, config=config)
-    return dict(result)
+def build_assessment_graph(persistence: Any = None):
+    warnings.warn("build_assessment_graph is deprecated", DeprecationWarning, stacklevel=2)
+    return None

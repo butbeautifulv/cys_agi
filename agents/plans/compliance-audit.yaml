@@ -1,19 +1,9 @@
 id: compliance-audit
 name: Compliance audit
-description: Control and policy gap analysis with critic validation
+description: Compliance worker for documents and scheduled audits
 
-pipeline: langgraph
-entrypoint: graph.workflow.run_assessment
-
-stages:
-  - id: ingest
-    action: sanitize_and_rate_limit
-  - id: specialists
-    parallel: false
-    personas: [compliance]
-  - id: critic
-    personas: [critic]
-  - id: hitl
-    condition: high_severity_or_low_trust
-  - id: report
-    action: publish_or_reject
+routing:
+  rules:
+    - event_types: [doc.upload, compliance.schedule, finding.reference]
+      personas: [compliance]
+      notify_control: true

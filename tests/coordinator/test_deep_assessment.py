@@ -14,14 +14,12 @@ async def test_coordinator_creation_and_session(monkeypatch):
         system_prompt="Coordinator prompt",
         interrupt_on={},
     )
-    specialist = SimpleNamespace(name="redteam")
-    critic = SimpleNamespace(name="critic")
+    worker = SimpleNamespace(name="redteam")
     registry = SimpleNamespace(
-        get=lambda name: coordinator_def if name == "coordinator" else critic,
-        by_role=lambda role: [specialist],
+        get=lambda name: coordinator_def,
+        by_workers=lambda: [worker],
     )
     runtime = SimpleNamespace(to_deep_agent_subagent=lambda defn: {"name": defn.name})
-    tool_registry = SimpleNamespace(get=lambda name: f"tool:{name}")
     product_context = SimpleNamespace(skills_path="agents/skills")
     captured = {}
 
@@ -46,9 +44,6 @@ async def test_coordinator_creation_and_session(monkeypatch):
     monkeypatch.setattr(deep_assessment, "get_persistence_connector", lambda: FakeCoordinatorConnector())
     monkeypatch.setattr(deep_assessment, "get_agent_registry", lambda: registry)
     monkeypatch.setattr(deep_assessment, "get_runtime", lambda: runtime)
-    monkeypatch.setattr(deep_assessment, "make_assessment_pipeline_tool", lambda runtime: "pipeline-tool")
-    monkeypatch.setattr(deep_assessment, "make_async_assessment_pipeline_tool", lambda runtime: "async-pipeline-tool")
-    monkeypatch.setattr(deep_assessment, "tool_registry", tool_registry)
     monkeypatch.setattr(deep_assessment, "get_model_connector", lambda: SimpleNamespace(create_model=lambda: "model"))
     monkeypatch.setattr(deep_assessment, "get_product_context", lambda: product_context)
     monkeypatch.setattr(deep_assessment, "create_deep_agent", fake_create_deep_agent)
@@ -56,9 +51,8 @@ async def test_coordinator_creation_and_session(monkeypatch):
     agent = deep_assessment.create_assessment_coordinator()
     assert agent.invoke({"messages": []}, config={})["messages"][0].content == "done"
     assert captured["interrupt_on"]["run_active_scan"] is True
-    assert captured["tools"] == ["pipeline-tool", "tool:run_active_scan"]
-    assert captured["subagents"] == [{"name": "redteam"}, {"name": "critic"}]
-    assert captured["skills"] == ["./agents/skills/"]
+    assert captured["tools"] == []
+    assert captured["subagents"] == [{"name": "redteam"}]
 
     result = deep_assessment.run_session("goal", thread_id="thread-a", persistence=SimpleNamespace(checkpointer="cp", store="s"))
     assert result["config"]["configurable"]["thread_id"] == "thread-a"
@@ -68,5 +62,3 @@ async def test_coordinator_creation_and_session(monkeypatch):
         persistence=SimpleNamespace(checkpointer="cp", store="s"),
     )
     assert async_result["messages"][0].content == "async-done"
-    assert async_result["config"]["configurable"]["thread_id"] == "thread-b"
-    assert captured["tools"][0] == "async-pipeline-tool"

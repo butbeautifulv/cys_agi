@@ -1,11 +1,33 @@
 # Plans
 
-Playbooks оценки — описывают **какие** personas задействовать и в каком порядке.
+Event routing playbooks — определяют **какой worker** запускается на **какой event**.
+
+## Формат
+
+```yaml
+id: incident-triage
+name: Incident triage
+description: SOC and network workers for active incidents
+
+routing:
+  rules:
+    - event_types: [siem.alert, edr.alert]
+      min_severity: low
+      personas: [soc]
+      notify_control: true
+    - event_types: [netflow.beacon]
+      personas: [network]
+```
+
+## Планы
 
 | Plan | Use case |
 |------|----------|
-| `full-assessment.yaml` | Полный LangGraph pipeline (default) |
-| `incident-triage.yaml` | Активный инцидент: SOC + network |
-| `compliance-audit.yaml` | Аудит контролей и политик |
+| `incident-triage.yaml` | SIEM/EDR → soc; NetFlow → network (default) |
+| `compliance-audit.yaml` | Documents, scheduled audits |
+| `redteam-engagement.yaml` | High-severity escalations → redteam |
+| `full-assessment.yaml` | Manual investigation → all workers |
 
-CLI `assess` использует `full-assessment` по умолчанию; планы можно расширять для кастомных graph entrypoints.
+Загрузка: `EventRouter.from_plans_dir(agents/plans/)`.
+
+CLI `session -g "..."` отправляет `manual.investigation` event.

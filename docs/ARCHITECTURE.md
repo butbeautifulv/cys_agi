@@ -2,215 +2,136 @@
 
 ## Обзор
 
-cys-agi — гибридная платформа с DDD-границами и async-ready runtime:
+cys-agi — **event-driven** multi-agent SOC platform с тремя плоскостями:
 
-1. **LangGraph pipeline** (`graph/`) — детерминированный flow для batch-оценок
-2. **Deep Agents coordinator** (`coordinator/`) — длинные сессии с subagents и on-demand skills
-3. **Domain layer** (`cys_core/domain/`) — чистые модели и политики без framework/I/O зависимостей
+1. **Ingress** (`ingress/`) — приём structured events (CLI, FastAPI, webhooks)
+2. **Control plane** (`control/`, `cys_core/domain/events/`) — router, critic, coordinator
+3. **Worker plane** (`workers/`, ephemeral sandbox) — автономные domain agents per event
 
-Оба пути используют единый **AgentRuntime** и **AgentRegistry**. Для async-сценариев доступны `AgentRuntime.arun()`, `run_assessment_async()` и `run_session_async()`.
+Единый **AgentRuntime** + **AgentRegistry** для LLM worker runs. Batch LangGraph pipeline (`graph/workflow.py`) **deprecated** — заменён event ingress.
 
-## Dependency inversion и connectors
-
-Application/interface слои не зависят от конкретного storage или model backend. Они используют ports из `cys_core/application/ports.py`:
-
-- `PersistenceConnector` возвращает storage-agnostic `PersistenceContext` с `checkpointer` и `store`
-- `ModelConnector` создаёт swappable chat model и callbacks
-- `AgentTransportConnector` описывает A2A transport с обязательным mTLS flag
-
-Конкретные реализации живут в infrastructure module `cys_core/persistence.py`:
-
-| Connector | Назначение |
-|-----------|------------|
-| `auto` | Выбирает memory fallback для test/dev fallback, иначе пробует Postgres |
-| `memory` | Всегда in-memory `MemorySaver` / `InMemoryStore` |
-| `postgres` | Предпочитает Postgres saver/store |
-
-Выбор connector: `PERSISTENCE_CONNECTOR=auto|memory|postgres`. Верхние слои (`runtime`, `graph`, `coordinator`) получают connector через factory и работают только с портом.
-
-## Data flow: LangGraph assess
-
-Assessment pipeline представлен как Directed Acyclic Graph (`graph/dag.py`) и валидируется перед компиляцией LangGraph.
+## Data flow: event-driven
 
 ```
-START
-  │
-  ▼
-ingest ── sanitize input, rate limit, reset state
-  │
-  ▼
-dispatch ── Send() parallel to specialists
-  │
-  ├──► run_agent (redteam)
-  ├──► run_agent (network)
-  ├──► run_agent (soc)
-  └──► run_agent (compliance)
-  │
-  ▼
-critic ── reconcile findings, trust_score
-  │
-  ▼
-hitl_gate ── interrupt() if high severity or low trust
-  │
-  ▼
-report ── publish or reject
-  │
-  ▼
-END
+SIEM / NetFlow / Doc / Manual
+         │
+         ▼
+   EventIngress.ingest()
+         │
+         ▼
+   EventRouter (agents/plans/*.yaml routing rules)
+         │
+         ▼
+   Redis JobQueue.enqueue(WorkerJob)
+         │
+         ▼
+   WorkerOrchestrator.process_next()
+         │
+         ├── SandboxConnector.create(run_id, persona)
+         ├── AgentRuntime.arun(persona, event_payload)
+         ├── OutputGuardrails.validate_schema()
+         ├── SecureAgentBus.send_message(finding)
+         ├── BusTransport.publish(critic, coordinator)
+         └── SandboxConnector.destroy(run_id)
+         │
+         ▼
+   CriticService.handle_message()  — trust_score, feedback
+   CoordinatorService.handle_message()  — user narrative
 ```
 
-### Узлы (`graph/nodes.py`)
+## Роли агентов
 
-| Узел | Функция |
-|------|---------|
-| `ingest_node` | `InputSanitizer`, `RedisRateLimiter` |
-| `dispatch_node` | `Send("run_agent")` для каждого `role=specialist` |
-| `run_agent_node` | `await AgentRuntime.arun()` + `SecureAgentBus` |
-| `critic_node` | Critic agent + `OutputGuardrails.validate_schema` |
-| `hitl_gate_node` | `HitlPolicy` + `interrupt()` или auto-approve в dev |
-| `report_node` | `AssessmentReportBuilder` |
+### Workers (ephemeral)
 
-Persistence: Postgres checkpointer (или `MemorySaver` в test/dev fallback).
+| Persona | Event types | Bus recipients |
+|---------|-------------|----------------|
+| soc | `siem.alert`, `edr.alert`, `iam.event` | network, critic, coordinator |
+| network | `netflow.beacon`, `dns.anomaly`, `escalation` | soc, critic |
+| redteam | `escalation`, `manual.investigation` (high+) | critic, coordinator |
+| compliance | `doc.upload`, `compliance.schedule` | critic, coordinator |
 
-## Data flow: Deep Agents session
+### Control (always on)
 
-```
-User goal
-  │
-  ▼
-coordinator (Deep Agent)
-  ├── subagents: specialists + critic (from registry)
-  ├── tools: run_assessment_pipeline, run_active_scan
-  ├── skills: ./agents/skills/ (on-demand domain knowledge)
-  └── interrupt_on: write_file, run_active_scan
-```
+| Persona | Роль |
+|---------|------|
+| critic | Observer: валидация findings, trust_score, async feedback |
+| coordinator | Control tower: narratives для user, bus subscriber |
 
-Coordinator persona загружается из `agents/personas/coordinator/`.
+## Decision layers
 
-## Registry и ProductContext
+1. **EventRouter** — deterministic rules from `agents/plans/`
+2. **ScopePolicy + RiskLevel** — per-agent tool allowlist, HITL gates
+3. **AgentRuntime** — LLM execution in sandbox with middleware
+4. **OutputGuardrails** — schema validation, PII, exfiltration
+5. **CriticService** — post-hoc quality gate (не блокирует worker inline)
 
-### AgentRegistry (`cys_core/registry/agents.py`)
+## Ports (`cys_core/application/ports.py`)
 
-Сканирует `agents/personas/*/agent.yaml`:
-
-- Парсит `AGENT.md` (или legacy `SKILL.md`)
-- Подмешивает `rules/*.md` через `ProductContext.augment_prompt()`
-- Добавляет language suffix для `language: ru`
-
-### ProductContext (`cys_core/registry/product_context.py`)
-
-| Asset | Путь | Использование |
-|-------|------|---------------|
-| Manifest | `agents/manifest.yaml` | Индекс personas/plans/skills |
-| Rules | `agents/rules/*.md` | Global constraints в system prompt |
-| Plans | `agents/plans/*.yaml` | Playbooks (future: plan-driven dispatch) |
-| Skills | `agents/skills/*/SKILL.md` | Deep Agents on-demand |
-
-## AgentRuntime (`cys_core/runtime/agent.py`)
-
-Единая точка создания агентов:
-
-```python
-create_agent(
-    model=get_model(),           # LiteLLM
-    tools=tool_registry.resolve(defn.tools),
-    system_prompt=defn.system_prompt,
-    middleware=[ScopeMiddleware, SecurityMiddleware, HITL?],
-    response_format=schema_registry.get(defn.schema_name),
-    checkpointer=...,
-)
-```
-
-`run(name, input)` — sanitize → invoke → validate output schema.
-`arun(name, input)` — async variant через `agent.ainvoke()`.
+| Port | Реализация |
+|------|------------|
+| `PersistenceConnector` | `cys_core/persistence.py` |
+| `ModelConnector` | `cys_core/llm/` |
+| `SandboxConnector` | `cys_core/infrastructure/sandbox.py` |
+| `JobQueueConnector` | `cys_core/infrastructure/queue.py` |
+| `AgentTransportConnector` | `cys_core/infrastructure/bus_transport.py` |
 
 ## Domain layer (`cys_core/domain/`)
 
 | Bounded context | Содержание |
 |-----------------|------------|
-| `domain/agents` | `AgentConfig`, `AgentDefinition`, `build_interrupt_on` (HITL policies) |
-| `domain/assessment` | `AssessmentState`, `HitlPolicy`, `AssessmentReportBuilder` |
-| `domain/findings` | Finding schemas и `CriticResult` |
-| `domain/security` | Sanitizer, guardrails, scope, redaction, prompt context, agent bus, factory, `SecurityViolation` |
-| `domain/messaging` | `extract_message_content` — pure message text normalization |
+| `domain/events` | `SecurityEvent`, `EventRouter`, plan routing |
+| `domain/workers` | `WorkerJob`, `RunResult`, `SandboxCredentials` |
+| `domain/agents` | `AgentConfig`, `build_interrupt_on` |
+| `domain/findings` | Finding schemas, `CriticResult` |
+| `domain/security` | Sanitizer, guardrails, scope, agent bus |
+| `domain/assessment` | Legacy HitlPolicy, report builder |
 
-Domain policies импортируются из `cys_core.domain.*`. Compatibility shims удалены.
+## Plans = routing rules
 
-## LLM layer (`cys_core/llm/`)
-
-- `ChatModelProvider` protocol
-- `LiteLLMProvider` — единственная реализация
-- Модель: `settings.llm_model` (формат LiteLLM: `anthropic/claude-sonnet-4`)
-- Ключ: первый непустой из OPENROUTER, OPENAI, ANTHROPIC, GEMINI, AI_APIKEY
-
-Нет прямой зависимости от `langchain-openai`.
-
-## Security layer
-
-**Domain policies** (`cys_core/domain/security/`): `InputSanitizer`, `OutputGuardrails`, `ScopePolicy`, `RedactionService`, `SecureAgentBus`, `TrustedSystemContext`, `PromptContextMiddleware` (via `cys_core/middleware/`).
-
-**Multilingual filters** (`cys_core/domain/security/patterns/`):
-
-| Pack | Содержание |
-|------|------------|
-| `injection_{en,ru,es,de,fr,zh}.py` | HARD/SOFT regex по языкам (приоритет RU) |
-| `pii_{common,en,ru,es,zh}.py` | PII и секреты (SNILS, INN, passport, +7, …) |
-| `normalization.py` | NFKC, zero-width strip, mixed-script homoglyph fold |
-| `common.py` | Delimiters, markup, encoding tokens |
-
-Pipeline: `normalize_input()` → HARD block → SOFT filter → fuzzy keywords (EN+RU roots) → base64/hex decode re-check.
-
-Threat model reference: [reference/LLM_Prompt_Injection_Prevention_Cheat_Sheet.md](reference/LLM_Prompt_Injection_Prevention_Cheat_Sheet.md). Offline corpus triage: [reference/injections/README.md](reference/injections/README.md).
-
-**Infrastructure** (`cys_core/security/`):
-
-| Модуль | Назначение |
-|--------|------------|
-| `rate_limit.py` | Redis/in-memory rate limiting |
-| `monitor.py` | structlog security events |
-| `memory.py` | Memory poisoning protection (delegates to domain) |
-
-Inter-agent messaging uses A2A envelopes (`a2a/1.0`) with signed payloads and mTLS identity metadata. Default identities are SPIFFE-style subjects: `spiffe://cys-agi/agent/<agent_id>`.
-
-Middleware (`cys_core/middleware/`):
-
-- `PromptContextMiddleware` — structured system/user separation, injection filtering
-- `ScopeMiddleware` — tool allowlist enforcement
-- `SecurityMiddleware` — per-call logging and guards
-
-## Persistence (`cys_core/persistence.py`)
-
-| Режим | Условие | Checkpointer | Store |
-|-------|---------|--------------|-------|
-| Memory | `USE_MEMORY_FALLBACK=true` или `STAGE=test` | `MemorySaver` | `InMemoryStore` |
-| Postgres | default prod/dev | `PostgresSaver` | `PostgresStore` |
-| Fallback | Postgres недоступен | auto → Memory | auto → InMemory |
-
-## Tools и Schemas
-
-- **Tools:** `cys_core/registry/tools.py` — `ToolRegistry`, stub implementations
-- **Schemas:** `cys_core/domain/findings/models.py` — Pydantic models; `cys_core/registry/schemas.py` — registry lookup
-
-Agent yaml ссылается на tools и schema по имени:
+`agents/plans/*.yaml` содержат `routing.rules`:
 
 ```yaml
-tools: [read_repo_metadata, parse_sast_report]
-output_schema: RedTeamFinding
-hitl_tools:
-  run_active_scan: true
+routing:
+  rules:
+    - event_types: [siem.alert, edr.alert]
+      personas: [soc]
+      notify_control: true
 ```
 
-## Plans (roadmap)
+| Plan | Назначение |
+|------|------------|
+| `incident-triage` | SOC + network (default) |
+| `compliance-audit` | Compliance worker |
+| `redteam-engagement` | Redteam on escalation |
+| `full-assessment` | Manual investigation — all workers |
 
-`agents/plans/*.yaml` описывают playbooks. Сейчас CLI `assess` всегда запускает full pipeline (все specialists). Планы — контракт для будущего plan-driven dispatch.
+## API (`ingress/api.py`)
+
+| Endpoint | Описание |
+|----------|----------|
+| `POST /events` | Ingest structured event |
+| `GET /status` | Control plane snapshot |
+| `POST /workers/process-one` | Process next queued job |
+
+## Security
+
+- **SecureAgentBus**: A2A `a2a/1.0`, HMAC, replay window, trust levels
+- **Middleware**: PromptContext, Scope, Security (rate limit, risk gate)
+- **MCP tools**: `cys_core/registry/mcp_tools.py` — sandbox-scoped invocation
+- **Sandbox**: `LocalSandboxConnector` (MVP); prod → K8s Job / E2B
+
+## Deprecated
+
+- `graph/workflow.py` `run_assessment` → redirects to `EventIngress`
+- `graph/nodes.py` batch pipeline nodes — legacy, не используется в event flow
 
 ## Зависимости
 
 | Пакет | Роль |
 |-------|------|
-| `langgraph` | Assessment pipeline |
 | `langchain` | `create_agent`, middleware |
-| `deepagents` | Coordinator sessions |
-| `litellm` | Provider-agnostic LLM |
-| `redis` | Rate limiting |
-| `psycopg` | Postgres checkpointer |
+| `langgraph` | Checkpointer (optional sessions) |
+| `deepagents` | Coordinator sessions (optional) |
+| `litellm` | LLM provider |
+| `fastapi` + `uvicorn` | Event/status API |
+| `redis` | Job queue + bus transport |

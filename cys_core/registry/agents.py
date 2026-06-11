@@ -97,7 +97,19 @@ class AgentRegistry:
         return list(self._agents.keys())
 
     def by_role(self, role: str) -> list[AgentDefinition]:
+        if role == "specialist":
+            return self.by_workers()
+        if role == "critic":
+            return [a for a in self._agents.values() if a.name == "critic"]
+        if role == "coordinator":
+            return [a for a in self._agents.values() if a.name == "coordinator"]
         return [a for a in self._agents.values() if a.role == role]
+
+    def by_workers(self) -> list[AgentDefinition]:
+        return [a for a in self._agents.values() if a.role in ("worker", "specialist")]
+
+    def by_control(self) -> list[AgentDefinition]:
+        return [a for a in self._agents.values() if a.role in ("control", "critic", "coordinator")]
 
 
 @lru_cache

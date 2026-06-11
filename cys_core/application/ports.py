@@ -48,3 +48,45 @@ class AgentTransportConnector(Protocol):
     async def send_async(self, message: dict[str, Any]) -> dict[str, Any]:
         """Send an A2A message over the connector asynchronously."""
 
+    def subscribe(self, channel: str, handler: Any) -> None:
+        """Register async handler for bus messages on channel."""
+
+    async def publish(self, channel: str, message: dict[str, Any]) -> None:
+        """Publish message to bus channel."""
+
+
+class SandboxConnector(Protocol):
+    """Port for ephemeral worker sandbox lifecycle."""
+
+    name: str
+
+    def create(self, run_id: str, persona: str, policy: str = "default") -> Any:
+        """Provision isolated sandbox for one worker run."""
+
+    def destroy(self, run_id: str) -> None:
+        """Tear down sandbox after worker completes."""
+
+    async def acreate(self, run_id: str, persona: str, policy: str = "default") -> Any:
+        """Async provision sandbox."""
+
+    async def adestroy(self, run_id: str) -> None:
+        """Async tear down sandbox."""
+
+
+class JobQueueConnector(Protocol):
+    """Port for worker job queue."""
+
+    name: str
+
+    def enqueue(self, job: dict[str, Any]) -> str:
+        """Enqueue worker job, return job id."""
+
+    def dequeue(self, timeout: float = 0.0) -> dict[str, Any] | None:
+        """Dequeue next job or None."""
+
+    async def aenqueue(self, job: dict[str, Any]) -> str:
+        """Async enqueue."""
+
+    async def adequeue(self, timeout: float = 0.0) -> dict[str, Any] | None:
+        """Async dequeue."""
+

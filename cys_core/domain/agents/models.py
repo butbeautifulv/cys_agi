@@ -11,7 +11,7 @@ class AgentConfig(BaseModel):
 
     name: str
     description: str
-    role: Literal["specialist", "critic", "coordinator"]
+    role: Literal["worker", "control", "specialist", "critic", "coordinator"]
     output_schema: str | None = None
     tools: list[str] = Field(default_factory=list)
     hitl_tools: dict[str, bool] = Field(default_factory=dict)
@@ -27,7 +27,7 @@ class AgentDefinition(BaseModel):
 
     name: str
     description: str
-    role: Literal["specialist", "critic", "coordinator"]
+    role: Literal["worker", "control", "specialist", "critic", "coordinator"]
     system_prompt: str
     system_prompt_digest: str = ""
     schema_name: str | None = None

@@ -7,9 +7,11 @@ def test_agent_registry_loads_all_agents():
     registry = AgentRegistry.load()
     names = set(registry.names())
     assert names == {"redteam", "network", "soc", "compliance", "critic", "coordinator"}
+    assert len(registry.by_workers()) == 4
     assert len(registry.by_role("specialist")) == 4
-    assert registry.get("critic").role == "critic"
-    assert registry.get("coordinator").role == "coordinator"
+    assert registry.get("critic").role == "control"
+    assert registry.get("coordinator").role == "control"
+    assert registry.get("soc").role == "worker"
 
 
 def test_agent_definitions_have_prompts_and_samples():

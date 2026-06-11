@@ -1,6 +1,6 @@
 name: compliance
 description: Compliance and control auditing
-role: specialist
+role: worker
 output_schema: ComplianceFinding
 tools:
   - check_control

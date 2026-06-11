@@ -1,10 +1,8 @@
 name: coordinator
 description: Long-running cybersecurity assessment orchestrator
-role: coordinator
+role: control
 output_schema: null
-tools:
-  - run_assessment_pipeline
-  - run_active_scan
+tools: []
 hitl_tools:
   run_active_scan: true
 trust_level: system

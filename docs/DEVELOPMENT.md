@@ -3,17 +3,10 @@
 ## Окружение
 
 ```bash
-# Python 3.13+
 uv sync --group dev
-
-# Инфраструктура
 docker compose up -d
-
-# Конфиг
 cp .env.example .env
 ```
-
-### Docker services
 
 | Service | Port | Credentials |
 |---------|------|-------------|
@@ -22,191 +15,110 @@ cp .env.example .env
 
 ## Режимы работы
 
-| STAGE | Persistence | HITL |
-|-------|-------------|------|
-| `test` | always memory | auto-approve possible |
-| `dev` | Postgres (fallback memory) | auto-approve if threshold ≥ medium |
-| `prod` | Postgres | strict HITL |
+| STAGE | Persistence | Queue/Bus |
+|-------|-------------|-----------|
+| `test` | memory | in-memory fallback |
+| `dev` | Postgres (fallback memory) | Redis or memory |
+| `prod` | Postgres | Redis |
 
-Для локальной разработки без Docker:
+Локально без Docker:
 
 ```bash
-USE_MEMORY_FALLBACK=true STAGE=dev python main.py assess -i "test input"
+USE_MEMORY_FALLBACK=true STAGE=dev python main.py ingest -t siem.alert -p '{"alert":"test"}'
+USE_MEMORY_FALLBACK=true STAGE=dev python main.py worker --once
 ```
 
 ## CLI для отладки
 
 ```bash
-# Конфигурация
 python main.py info
 
-# Один агент (быстрая проверка prompt/tools)
-python main.py agent redteam
-python main.py agent critic --input '[{"agent":"redteam","data":{}}]'
+# Event-driven flow
+python main.py ingest -t siem.alert -p '{"alert":"powershell"}' -s high
+python main.py worker --once
+python main.py status
 
-# Полный pipeline
-python main.py assess -i "Authorized scope: test" --thread-id debug-001
+# API
+python main.py serve --port 8080
+curl -X POST http://localhost:8080/events \
+  -H 'Content-Type: application/json' \
+  -d '{"event_type":"siem.alert","payload":{"alert":"test"}}'
 
-# HITL resume
-python main.py resume --thread-id debug-001 --approve
+# Manual investigation (all workers)
+python main.py session -g "Analyze workflow risks"
 
-# Coordinator session
-python main.py session -g "Analyze workflow risks" --thread-id sess-001
+# Single worker debug
+python main.py agent soc
+python main.py agent redteam -i "sample input"
 ```
 
 ## Тестирование
 
 ```bash
-# Все тесты + coverage gate (100% domain)
-USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/ -v --cov=cys_core/domain
+USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/ -q --cov=cys_core/domain
 
-# По слоям
-uv run pytest tests/domain/ -v
-uv run pytest tests/middleware/ -v
-uv run pytest tests/infrastructure/ -v
-uv run pytest tests/graph/ -v
-uv run pytest tests/coordinator/ -v
-uv run pytest tests/registry/ -v
+uv run pytest tests/domain/events/ -v
+uv run pytest tests/workers/ -v
+uv run pytest tests/ingress/ -v
+uv run pytest tests/control/ -v
 uv run pytest tests/adversarial/ -v
-
-# Один тест
-uv run pytest tests/registry/test_agent_registry.py::test_registry_loads_all_personas -v
 ```
-
-`pyproject.toml` задаёт `pythonpath = ["."]` — PYTHONPATH вручную не нужен.
 
 ## Добавление persona
 
-### 1. Структура папки
-
-```
-agents/personas/myagent/
-├── agent.yaml
-├── AGENT.md
-└── samples/
-    └── default.txt
-```
-
-### 2. agent.yaml
+### agent.yaml
 
 ```yaml
 name: myagent
 description: Short description
-role: specialist          # specialist | critic | coordinator
-output_schema: MyFinding  # из schemas.py
+role: worker              # worker | control
+output_schema: MyFinding
 tools:
-  - read_repo_metadata
-hitl_tools: {}            # tool_name: true для HITL
-trust_level: internal       # untrusted | internal | privileged | system
+  - dedup_alerts
+hitl_tools: {}
+trust_level: internal
 bus_recipients:
   - critic
+  - coordinator
 language: ru
 sample: samples/default.txt
 ```
 
-### 3. AGENT.md
+### Routing rule
 
-Markdown system prompt. Опционально YAML frontmatter:
+Добавить в `agents/plans/<plan>.yaml`:
 
-```markdown
----
-title: My Agent
----
-
-You are MyAgent. Analyze ...
+```yaml
+routing:
+  rules:
+    - event_types: [my.event.type]
+      personas: [myagent]
+      notify_control: true
 ```
 
-### 4. Schema (если новая)
+### manifest.yaml
 
-Модель в `cys_core/domain/findings/models.py`:
+Добавить в `personas.workers` или `personas.control`.
 
-```python
-class MyFinding(BaseModel):
-    severity: str
-    summary: str
-    ...
+## Добавление event type
+
+1. Добавить literal в `cys_core/domain/events/models.py` → `EventType`
+2. Routing rule в plan YAML
+3. Тест в `tests/domain/events/`
+
+## Структура event-driven кода
+
+```
+ingress/router.py       # EventIngress
+workers/orchestrator.py # WorkerOrchestrator
+control/                # CriticService, CoordinatorService, StatusStore
+cys_core/domain/events/ # SecurityEvent, EventRouter
+cys_core/infrastructure/# sandbox, queue, bus_transport
 ```
 
-Зарегистрировать в `cys_core/registry/schemas.py` (`_SCHEMAS` / `schema_registry`).
-
-### 5. Tool (если новый)
-
-`cys_core/registry/tools.py` — `@tool` function + register в `ToolRegistry`.
-
-### 6. manifest.yaml
-
-Добавить имя в `personas.specialists` (или critic/coordinator).
-
-### 7. Тест
+## Langfuse (опционально)
 
 ```bash
-uv run pytest tests/registry/ -q
-python main.py agent myagent
-```
-
-## Добавление rule
-
-Файл `agents/rules/my-rule.md` — автоматически подхватывается `ProductContext` и добавляется ко всем system prompts.
-
-## Добавление product skill
-
-```
-agents/skills/my-skill/SKILL.md
-```
-
-Frontmatter + domain knowledge. Coordinator загружает из `./agents/skills/`.
-
-## Добавление plan
-
-`agents/plans/my-plan.yaml` — описание stages и personas. Запись в `manifest.yaml` → `plans:`.
-
-> Plan-driven dispatch в graph пока не реализован; план — контракт и документация playbook.
-
-## LLM providers
-
-LiteLLM model strings:
-
-| Provider | Пример `LLM_MODEL` |
-|----------|-------------------|
-| Anthropic | `anthropic/claude-sonnet-4` |
-| OpenAI | `gpt-4o` |
-| Gemini | `gemini/gemini-2.0-flash` |
-| OpenRouter | `openrouter/anthropic/claude-sonnet-4` + `LLM_BASE_URL` |
-
-Ключ: соответствующая env var (`ANTHROPIC_API_KEY`, etc.).
-
-## Langfuse tracing
-
-```bash
-LANGFUSE_API_KEY=pk-...
+LANGFUSE_API_KEY=...
 LANGFUSE_HOST=https://cloud.langfuse.com
 ```
-
-Callbacks подключаются в `AgentRuntime` через `get_langfuse_callbacks()`.
-
-## Частые проблемы
-
-| Проблема | Решение |
-|----------|---------|
-| `No module named 'cys_core'` | `uv run pytest` или `pythonpath` в pyproject |
-| Postgres connection refused | `docker compose up -d` или `USE_MEMORY_FALLBACK=true` |
-| Agent not found | Проверить `agents/personas/<name>/agent.yaml` |
-| LiteLLM auth error | Проверить API key в `.env` |
-| HITL interrupt | `python main.py resume --thread-id ID --approve` |
-
-## Структура тестов
-
-```
-tests/
-├── domain/           # unit-тесты domain-политик (sanitizer, scope, hitl, findings)
-├── middleware/       # LangChain middleware adapters
-├── infrastructure/   # persistence, llm, rate_limit, memory, monitor, CLI
-├── graph/            # LangGraph workflow и nodes
-├── coordinator/      # Deep Agents wiring
-├── registry/         # smoke против реального agents/
-└── adversarial/      # security abuse scenarios
-```
-
-Coverage gate: **100%** на `cys_core/domain` (`pyproject.toml`, `fail_under = 100`).
-
-Adversarial тесты не требуют LLM — проверяют security primitives напрямую.

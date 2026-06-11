@@ -1,6 +1,6 @@
 name: redteam
 description: Offensive security analysis of authorized repositories and CI/CD
-role: specialist
+role: worker
 output_schema: RedTeamFinding
 tools:
   - read_repo_metadata

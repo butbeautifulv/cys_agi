@@ -9,22 +9,24 @@ layout:
   skills: skills/           # on-demand domain knowledge modules
 
 personas:
-  specialists: [redteam, network, soc, compliance]
-  critic: critic
-  coordinator: coordinator
+  workers: [redteam, network, soc, compliance]
+  control: [critic, coordinator]
 
-default_plan: full-assessment
+default_plan: incident-triage
 
 plans:
-  - id: full-assessment
-    file: plans/full-assessment.yaml
-    description: Parallel specialists → critic → HITL → report
   - id: incident-triage
     file: plans/incident-triage.yaml
-    description: SOC + network focus for active incidents
+    description: Event-driven SOC and network workers
   - id: compliance-audit
     file: plans/compliance-audit.yaml
-    description: Compliance + critic for control gap analysis
+    description: Compliance worker for documents and schedules
+  - id: redteam-engagement
+    file: plans/redteam-engagement.yaml
+    description: Authorized redteam worker on escalation
+  - id: full-assessment
+    file: plans/full-assessment.yaml
+    description: Manual investigation — all workers
 
 skills:
   - ci-cd-threats

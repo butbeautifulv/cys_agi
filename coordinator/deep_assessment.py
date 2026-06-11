@@ -9,11 +9,10 @@ from cys_core.llm import get_model_connector
 from cys_core.persistence import get_persistence_connector
 from cys_core.registry.agents import get_agent_registry
 from cys_core.registry.product_context import get_product_context
-from cys_core.registry.tools import tool_registry
 from cys_core.domain.security.exceptions import SecurityViolation
 from cys_core.domain.security.factory import get_input_sanitizer
 from cys_core.domain.security.prompt_context import REFUSAL_MESSAGE
-from cys_core.runtime.agent import get_runtime, make_assessment_pipeline_tool, make_async_assessment_pipeline_tool
+from cys_core.runtime.agent import get_runtime
 
 _sanitizer = get_input_sanitizer()
 
@@ -26,11 +25,10 @@ def create_assessment_coordinator(persistence: PersistenceContext | None = None,
     model_connector = get_model_connector()
     coordinator = registry.get("coordinator")
 
-    subagent_defs = registry.by_role("specialist") + [registry.get("critic")]
+    subagent_defs = registry.by_workers()
     subagents = [runtime.to_deep_agent_subagent(defn) for defn in subagent_defs]
 
-    pipeline_tool = make_async_assessment_pipeline_tool(runtime) if async_tools else make_assessment_pipeline_tool(runtime)
-    coordinator_tools = [pipeline_tool, tool_registry.get("run_active_scan")]
+    coordinator_tools: list = []
 
     interrupt_on = coordinator.interrupt_on or {
         "write_file": True,
@@ -59,10 +57,10 @@ async def create_assessment_coordinator_async(persistence: PersistenceContext | 
     model_connector = get_model_connector()
     coordinator = registry.get("coordinator")
 
-    subagent_defs = registry.by_role("specialist") + [registry.get("critic")]
+    subagent_defs = registry.by_workers()
     subagents = [runtime.to_deep_agent_subagent(defn) for defn in subagent_defs]
 
-    coordinator_tools = [make_async_assessment_pipeline_tool(runtime), tool_registry.get("run_active_scan")]
+    coordinator_tools: list = []
     interrupt_on = coordinator.interrupt_on or {
         "write_file": True,
         "run_active_scan": True,

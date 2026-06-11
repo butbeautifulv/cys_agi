@@ -97,14 +97,12 @@ Deep Agents runs only with configured tools and product skills:
 
 For stronger runtime sandboxing, run the container with the secure compose profile and keep all mutable data behind connectors.
 
-## FastAPI-ready async entrypoints
+## FastAPI event API
 
-Use async entrypoints from a future FastAPI app:
+`ingress/api.py` exposes:
 
-```python
-await run_assessment_async(...)
-await run_session_async(...)
-await AgentRuntime().arun(...)
-```
+- `POST /events` — ingest structured security events
+- `GET /status` — control plane snapshot
+- `POST /workers/process-one` — process next worker job
 
-Do not call sync compatibility wrappers from ASGI request handlers.
+Start with `python main.py serve`. Use async entrypoints (`WorkerOrchestrator.process_next`, `EventIngress.aingest`) from ASGI handlers — not sync wrappers.
