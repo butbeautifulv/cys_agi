@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     persistence_connector: str = Field(default="auto", validation_alias="PERSISTENCE_CONNECTOR")
     agents_root: str = Field(default="agents", validation_alias="AGENTS_ROOT")
 
+    # Kafka / Redpanda
+    kafka_bootstrap_servers: str = Field(
+        default="localhost:9092", validation_alias="KAFKA_BOOTSTRAP_SERVERS"
+    )
+    use_kafka: bool = Field(default=False, validation_alias="USE_KAFKA")
+    kafka_consumer_group_prefix: str = Field(
+        default="cys-agi", validation_alias="KAFKA_CONSUMER_GROUP_PREFIX"
+    )
+
     @computed_field
     @property
     def llm_api_key(self) -> str:
