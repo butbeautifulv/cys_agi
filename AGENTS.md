@@ -97,3 +97,44 @@ USE_MEMORY_FALLBACK=true STAGE=test pytest tests/ -q
 - Минимальный diff — не трогать несвязанный код
 - Следовать существующим паттернам в `cys_core/`
 - Комментарии только для неочевидной логики
+
+## Cursor Cloud specific instructions
+
+**cys-agi** — CLI-приложение (нет web UI, нет отдельного API-сервера). Единственный runtime: `python main.py` / `uv run python main.py`.
+
+### Зависимости и Python
+
+- Менеджер пакетов: **uv** (`uv sync`). Lockfile: `uv.lock`, Python **≥ 3.13** (`.python-version`).
+- `uv` обычно в `~/.local/bin`; при «command not found» добавить в PATH или переустановить: `curl -LsSf https://astral.sh/uv/install.sh | sh`.
+- После `uv sync` использовать `uv run …` или активировать `.venv`.
+
+### Инфраструктура (опционально)
+
+| Сервис | Когда нужен | Без Docker |
+|--------|-------------|------------|
+| Postgres 16 | HITL resume, persistence в `dev`/`prod` | `USE_MEMORY_FALLBACK=true` |
+| Redis 7 | Distributed rate limiting | In-memory fallback автоматически |
+
+`docker compose up -d` поднимает только Postgres + Redis ([docker-compose.yml](docker-compose.yml)). В Cloud VM Docker может отсутствовать — для разработки и тестов достаточно memory fallback.
+
+### Конфиг
+
+```bash
+cp .env.example .env   # LLM API key для live assess/session/agent
+```
+
+Без API-ключа работают: `info`, `adversarial-test`, `pytest`, загрузка registry и компиляция LangGraph.
+
+### Команды (стандартные)
+
+| Действие | Команда |
+|----------|---------|
+| Тесты | `USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/ -q` |
+| Smoke | `USE_MEMORY_FALLBACK=true STAGE=dev uv run python main.py info` |
+| Live pipeline | `uv run python main.py assess -i "Authorized scope: …"` (нужен LLM key) |
+
+Подробнее: [README.md](README.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+### Линт
+
+Отдельного linter (ruff/mypy) в репозитории нет; quality gate — pytest (23 теста: registry + adversarial).
