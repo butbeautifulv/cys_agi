@@ -11,6 +11,8 @@ from langgraph.store.memory import InMemoryStore
 
 from bootstrap.settings import settings
 from cys_core.application.ports import PersistenceConnector, PersistenceContext
+from cys_core.domain.persistence.exceptions import PersistenceUnavailableError
+from cys_core.observability.metrics import metrics
 
 
 class PersistenceStack(AbstractContextManager["PersistenceStack"]):
@@ -45,7 +47,10 @@ class PersistenceStack(AbstractContextManager["PersistenceStack"]):
             self._store_cm = PostgresStore.from_conn_string(settings.postgres_url)
             self.store = self._store_cm.__enter__()
             self.store.setup()
-        except Exception:
+        except Exception as exc:
+            if settings.stage == "prod" and not settings.use_memory_fallback:
+                raise PersistenceUnavailableError("Postgres persistence unavailable") from exc
+            metrics.record_persistence_fallback("checkpointer")
             self.checkpointer = MemorySaver()
             self.store = InMemoryStore()
         return self
@@ -93,7 +98,10 @@ class AsyncPersistenceStack(AbstractAsyncContextManager["AsyncPersistenceStack"]
             maybe_store_setup = self.store.setup()
             if inspect.isawaitable(maybe_store_setup):
                 await maybe_store_setup
-        except Exception:
+        except Exception as exc:
+            if settings.stage == "prod" and not settings.use_memory_fallback:
+                raise PersistenceUnavailableError("Postgres persistence unavailable") from exc
+            metrics.record_persistence_fallback("checkpointer")
             self.checkpointer = MemorySaver()
             self.store = InMemoryStore()
         return self
@@ -142,14 +150,18 @@ class StackPersistenceConnector:
         return force_memory
 
     def open(self, *, force_memory: bool | None = None) -> PersistenceContext:
-        stack = PersistenceStack(force_memory=self._resolve_force_memory(force_memory))
-        stack.__enter__()
-        return stack
+        if force_memory is not None:
+            stack = PersistenceStack(force_memory=force_memory)
+            stack.__enter__()
+            return stack
+        return get_persistence()
 
     async def open_async(self, *, force_memory: bool | None = None) -> PersistenceContext:
-        stack = AsyncPersistenceStack(force_memory=self._resolve_force_memory(force_memory))
-        await stack.__aenter__()
-        return stack
+        if force_memory is not None:
+            stack = AsyncPersistenceStack(force_memory=force_memory)
+            await stack.__aenter__()
+            return stack
+        return await get_async_persistence()
 
 
 class MemoryPersistenceConnector(StackPersistenceConnector):
@@ -160,6 +172,16 @@ class MemoryPersistenceConnector(StackPersistenceConnector):
     def _resolve_force_memory(self, force_memory: bool | None) -> bool | None:
         return True if force_memory is None else force_memory
 
+    def open(self, *, force_memory: bool | None = None) -> PersistenceContext:
+        stack = PersistenceStack(force_memory=self._resolve_force_memory(force_memory))
+        stack.__enter__()
+        return stack
+
+    async def open_async(self, *, force_memory: bool | None = None) -> PersistenceContext:
+        stack = AsyncPersistenceStack(force_memory=self._resolve_force_memory(force_memory))
+        await stack.__aenter__()
+        return stack
+
 
 class PostgresPersistenceConnector(StackPersistenceConnector):
     """Prefer Postgres persistence, falling back according to stack policy."""
@@ -168,6 +190,16 @@ class PostgresPersistenceConnector(StackPersistenceConnector):
 
     def _resolve_force_memory(self, force_memory: bool | None) -> bool | None:
         return False if force_memory is None else force_memory
+
+    def open(self, *, force_memory: bool | None = None) -> PersistenceContext:
+        stack = PersistenceStack(force_memory=self._resolve_force_memory(force_memory))
+        stack.__enter__()
+        return stack
+
+    async def open_async(self, *, force_memory: bool | None = None) -> PersistenceContext:
+        stack = AsyncPersistenceStack(force_memory=self._resolve_force_memory(force_memory))
+        await stack.__aenter__()
+        return stack
 
 
 _CONNECTORS: dict[str, PersistenceConnector] = {

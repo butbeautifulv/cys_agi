@@ -83,3 +83,11 @@ def build_untrusted_data(
 ) -> UntrustedData:
     wrapped = wrap_user_data(sanitized, source=source)
     return UntrustedData(source=source, raw=raw, sanitized=sanitized, wrapped=wrapped)
+
+
+def wrap_investigation_memory(content: str, *, trust: str = "internal") -> str:
+    return (
+        f'[RETRIEVED_INVESTIGATION_MEMORY source="episodic" trust="{trust}"]\n'
+        f"{content}\n"
+        "[/RETRIEVED_INVESTIGATION_MEMORY]"
+    )

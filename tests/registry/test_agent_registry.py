@@ -6,7 +6,7 @@ from cys_core.registry.tools import tool_registry
 def test_agent_registry_loads_all_agents():
     registry = AgentRegistry.load()
     names = set(registry.names())
-    assert names == {"redteam", "network", "soc", "compliance", "critic", "coordinator"}
+    assert names == {"redteam", "network", "soc", "compliance", "critic", "coordinator", "planner"}
     assert len(registry.by_workers()) == 4
     assert len(registry.by_role("specialist")) == 4
     assert registry.get("critic").role == "control"

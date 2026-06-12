@@ -7,7 +7,9 @@ from typing import Any, Protocol
 from cys_core.application.ports.agent_runner import AgentRunner
 from cys_core.application.ports.bus import AgentTransportConnector
 from cys_core.application.ports.job_queue import JobQueueConnector
+from cys_core.application.ports.memory import InvestigationStateStore
 from cys_core.application.ports.sandbox import SandboxConnector
+from cys_core.domain.memory.services import MemoryReadService, MemoryWriteService
 from cys_core.domain.security.agent_bus import SecureAgentBus
 from cys_core.domain.security.exceptions import SecurityViolation
 from cys_core.domain.security.guardrails import OutputGuardrails
@@ -49,7 +51,11 @@ class RunWorkerJob:
         resolve_mcp_tools: Any,
         resolve_legacy_tools: Any,
         make_load_skill_tool: Any,
+        memory_reader: MemoryReadService | None = None,
+        memory_writer: MemoryWriteService | None = None,
+        investigation_store: InvestigationStateStore | None = None,
         record_sanitizer_block: Callable[[str, str], None] | None = None,
+        record_memory_write: Callable[[str, str], None] | None = None,
     ) -> None:
         self.runtime = runtime
         self.registry = registry
@@ -64,7 +70,37 @@ class RunWorkerJob:
         self.resolve_mcp_tools = resolve_mcp_tools
         self.resolve_legacy_tools = resolve_legacy_tools
         self.make_load_skill_tool = make_load_skill_tool
+        self.memory_reader = memory_reader
+        self.memory_writer = memory_writer
+        self.investigation_store = investigation_store
         self.record_sanitizer_block = record_sanitizer_block or (lambda _where, _mode: None)
+        self.record_memory_write = record_memory_write or (lambda _tenant, _memory_type: None)
+
+    def _investigation_context(self, job: WorkerJob) -> dict[str, Any]:
+        investigation_id = job.correlation_id or job.event_id
+        context: dict[str, Any] = {"investigation_id": investigation_id, "tenant_id": job.tenant_id}
+        if self.investigation_store is not None:
+            state = self.investigation_store.get(job.tenant_id, investigation_id)
+            if state is not None:
+                context["state"] = state.model_dump(mode="json")
+        if self.memory_reader is not None:
+            entries = self.memory_reader.query_investigation(
+                job.tenant_id,
+                investigation_id,
+                limit=10,
+                requesting_tenant_id=job.tenant_id,
+            )
+            if entries:
+                context["prior_findings"] = [
+                    {
+                        "agent": entry.source_agent,
+                        "type": entry.memory_type,
+                        "content": entry.content,
+                        "job_id": entry.source_job_id,
+                    }
+                    for entry in entries
+                ]
+        return context
 
     def _job_input(self, job: WorkerJob) -> str:
         return json.dumps(
@@ -74,6 +110,7 @@ class RunWorkerJob:
                 "payload": job.payload,
                 "sandbox_id": job.sandbox_id,
                 "feedback": job.feedback,
+                "investigation_context": self._investigation_context(job),
             },
             ensure_ascii=False,
         )
@@ -86,6 +123,7 @@ class RunWorkerJob:
         job_state: dict[str, str],
     ) -> RunResult:
         run_id = job.job_id
+        investigation_id = job.correlation_id or job.event_id
         try:
             creds = await self.sandbox.acreate(run_id, job.persona)
             job.sandbox_id = creds.sandbox_id
@@ -119,6 +157,8 @@ class RunWorkerJob:
                 job_id=job.job_id,
                 event_id=job.event_id,
                 correlation_id=job.correlation_id,
+                tenant_id=job.tenant_id,
+                investigation_id=investigation_id,
                 sandbox_id=creds.sandbox_id,
             )
 
@@ -127,15 +167,34 @@ class RunWorkerJob:
                 validated = self.guardrails.validate_schema(result, schema)
                 result = validated.model_dump()
 
-            envelope = self.bus.send_message(
-                job.persona,
-                "critic",
-                "finding",
-                {"agent": job.persona, "event_id": job.event_id, "data": result, "sandbox_id": creds.sandbox_id},
-            )
-            self.bus.receive_message("critic", envelope)
-            await self.transport.publish("critic", envelope)
-            await self.transport.publish("coordinator", envelope)
+            finding_payload = {
+                "agent": job.persona,
+                "event_id": job.event_id,
+                "correlation_id": investigation_id,
+                "tenant_id": job.tenant_id,
+                "job_id": job.job_id,
+                "data": result,
+                "sandbox_id": creds.sandbox_id,
+            }
+            recipients = list(dict.fromkeys([*(getattr(defn, "bus_recipients", None) or []), "critic"]))
+            for recipient in recipients:
+                envelope = self.bus.send_message(job.persona, recipient, "finding", finding_payload)
+                self.bus.receive_message(recipient, envelope)
+                await self.transport.publish(recipient, envelope)
+
+            if self.memory_writer is not None and isinstance(result, dict):
+                entry = self.memory_writer.append_pending_finding(
+                    tenant_id=job.tenant_id,
+                    investigation_id=investigation_id,
+                    source_agent=job.persona,
+                    source_job_id=job.job_id,
+                    finding=result,
+                )
+                if entry is not None:
+                    self.record_memory_write(job.tenant_id, entry.memory_type)
+
+            if self.investigation_store is not None:
+                self.investigation_store.mark_persona_done(job.tenant_id, investigation_id, job.persona)
 
             job.status = WorkerJobStatus.COMPLETED
             self.job_store.mark_completed(job.job_id)

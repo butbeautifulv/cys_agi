@@ -2,33 +2,13 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import Any, Protocol
+from typing import Any
 
+from cys_core.application.use_cases.dispatch_event import DispatchEvent, fallback_plan
+from cys_core.application.use_cases.plan_investigation import InvestigationPlan, PlanInvestigation
 from cys_core.domain.events.models import RoutingDecision, SecurityEvent
 from cys_core.domain.events.router import EventRouter
 from cys_core.observability.tracing import bind_correlation_id, reset_correlation_id
-
-
-class JobEnqueuer(Protocol):
-    def enqueue_from_routing_sync(
-        self,
-        event_id: str,
-        personas: list[str],
-        *,
-        playbook_id: str = "",
-        payload: dict[str, Any] | None = None,
-        correlation_id: str = "",
-    ) -> list[str]: ...
-
-    async def enqueue_from_routing(
-        self,
-        event_id: str,
-        personas: list[str],
-        *,
-        playbook_id: str = "",
-        payload: dict[str, Any] | None = None,
-        correlation_id: str = "",
-    ) -> list[str]: ...
 
 
 class RouteAndEnqueueEvent:
@@ -38,11 +18,12 @@ class RouteAndEnqueueEvent:
         self,
         *,
         router: EventRouter,
-        enqueuer: JobEnqueuer,
+        enqueuer: Any,
         use_kafka: bool = False,
         publish_raw_event_sync: Callable[[SecurityEvent], bool] | None = None,
         publish_raw_event: Callable[[SecurityEvent], Awaitable[bool]] | None = None,
         record_event_ingested: Callable[[str], None] | None = None,
+        plan_investigation: PlanInvestigation | None = None,
     ) -> None:
         self.router = router
         self.enqueuer = enqueuer
@@ -50,6 +31,34 @@ class RouteAndEnqueueEvent:
         self.publish_raw_event_sync = publish_raw_event_sync
         self.publish_raw_event = publish_raw_event
         self.record_event_ingested = record_event_ingested or (lambda _event_type: None)
+        self.plan_investigation = plan_investigation
+        self._dispatcher = DispatchEvent(
+            router=router,
+            enqueuer=enqueuer,
+            plan_investigation=plan_investigation,
+            plan_executor=lambda event: fallback_plan(event),
+        )
+
+    def _build_event(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+        *,
+        severity: str,
+        source: str,
+        event_id: str | None,
+        correlation_id: str,
+        tenant_id: str = "default",
+    ) -> SecurityEvent:
+        return SecurityEvent(
+            id=event_id or f"evt-{uuid.uuid4().hex[:12]}",
+            type=event_type,  # type: ignore[arg-type]
+            source=source,
+            severity=severity,  # type: ignore[arg-type]
+            payload=payload,
+            tenant_id=tenant_id,
+            correlation_id=correlation_id or "",
+        )
 
     def execute(
         self,
@@ -60,14 +69,16 @@ class RouteAndEnqueueEvent:
         source: str = "",
         event_id: str | None = None,
         correlation_id: str = "",
+        tenant_id: str = "default",
     ) -> tuple[SecurityEvent, RoutingDecision, list[str]]:
-        event = SecurityEvent(
-            id=event_id or f"evt-{uuid.uuid4().hex[:12]}",
-            type=event_type,  # type: ignore[arg-type]
+        event = self._build_event(
+            event_type,
+            payload,
+            severity=severity,
             source=source,
-            severity=severity,  # type: ignore[arg-type]
-            payload=payload,
-            correlation_id=correlation_id or "",
+            event_id=event_id,
+            correlation_id=correlation_id,
+            tenant_id=tenant_id,
         )
         cid_token = bind_correlation_id(event.correlation_id or event.id)
         try:
@@ -76,16 +87,7 @@ class RouteAndEnqueueEvent:
                 decision = self.router.route(event)
                 return event, decision, []
 
-            decision = self.router.route(event)
-            job_ids: list[str] = []
-            if decision.personas:
-                job_ids = self.enqueuer.enqueue_from_routing_sync(
-                    event.id,
-                    decision.personas,
-                    playbook_id=decision.playbook_id,
-                    payload=payload,
-                    correlation_id=event.correlation_id or event.id,
-                )
+            decision, job_ids = self._dispatcher.dispatch_sync(event, payload)
             return event, decision, job_ids
         finally:
             reset_correlation_id(cid_token)
@@ -99,14 +101,16 @@ class RouteAndEnqueueEvent:
         source: str = "",
         event_id: str | None = None,
         correlation_id: str = "",
+        tenant_id: str = "default",
     ) -> tuple[SecurityEvent, RoutingDecision, list[str]]:
-        event = SecurityEvent(
-            id=event_id or f"evt-{uuid.uuid4().hex[:12]}",
-            type=event_type,  # type: ignore[arg-type]
+        event = self._build_event(
+            event_type,
+            payload,
+            severity=severity,
             source=source,
-            severity=severity,  # type: ignore[arg-type]
-            payload=payload,
-            correlation_id=correlation_id or "",
+            event_id=event_id,
+            correlation_id=correlation_id,
+            tenant_id=tenant_id,
         )
         cid_token = bind_correlation_id(event.correlation_id or event.id)
         try:
@@ -116,16 +120,10 @@ class RouteAndEnqueueEvent:
                     decision = self.router.route(event)
                     return event, decision, []
 
-            decision = self.router.route(event)
-            job_ids: list[str] = []
-            if decision.personas:
-                job_ids = await self.enqueuer.enqueue_from_routing(
-                    event.id,
-                    decision.personas,
-                    playbook_id=decision.playbook_id,
-                    payload=payload,
-                    correlation_id=event.correlation_id or event.id,
-                )
+            decision, job_ids = await self._dispatcher.dispatch_async(event, payload)
             return event, decision, job_ids
         finally:
             reset_correlation_id(cid_token)
+
+    def _fallback_plan(self, event: SecurityEvent) -> InvestigationPlan:
+        return fallback_plan(event)

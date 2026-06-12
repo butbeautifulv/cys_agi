@@ -23,9 +23,11 @@ class WorkerJob(BaseModel):
     playbook_id: str = ""
     payload: dict[str, Any] = Field(default_factory=dict)
     correlation_id: str = ""
+    tenant_id: str = "default"
     status: WorkerJobStatus = WorkerJobStatus.PENDING
     sandbox_id: str = ""
     feedback: str = ""
+    depends_on_persona: str = ""
     max_tokens: int = 0
     max_cost_usd: float = 0.0
     max_tool_calls: int = 0

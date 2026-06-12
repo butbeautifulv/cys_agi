@@ -1,0 +1,11 @@
+name: planner
+description: Investigation planner for manual security assessments
+role: control
+output_schema: null
+tools: []
+hitl_tools: {}
+trust_level: system
+bus_recipients: []
+language: ru
+sample: samples/default.txt
+interrupt_on: {}

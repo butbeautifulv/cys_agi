@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     trust_score_threshold: float = Field(default=0.5, validation_alias="TRUST_SCORE_THRESHOLD")
     use_memory_fallback: bool = Field(default=False, validation_alias="USE_MEMORY_FALLBACK")
     persistence_connector: str = Field(default="auto", validation_alias="PERSISTENCE_CONNECTOR")
+    job_store_connector: str = Field(default="auto", validation_alias="JOB_STORE_CONNECTOR")
+    bus_signing_key: str = Field(default="cys-agi-bus-key", validation_alias="BUS_SIGNING_KEY")
+    siem_adapter: str = Field(default="mock", validation_alias="SIEM_ADAPTER")
+    siem_base_url: str = Field(default="", validation_alias="SIEM_BASE_URL")
+    use_real_embeddings: bool = Field(default=False, validation_alias="USE_REAL_EMBEDDINGS")
     agents_root: str = Field(default="agents", validation_alias="AGENTS_ROOT")
 
     kafka_bootstrap_servers: str = Field(
@@ -101,6 +106,11 @@ class Settings(BaseSettings):
             f"postgresql://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
+    @computed_field
+    @property
+    def bus_signing_key_bytes(self) -> bytes:
+        return self.bus_signing_key.encode("utf-8")
 
     @computed_field
     @property

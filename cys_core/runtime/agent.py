@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import Any, TypeVar
+from typing import Any, Callable, TypeVar
 
 from langchain.agents import create_agent
 from langchain.agents.middleware.human_in_the_loop import HumanInTheLoopMiddleware
@@ -11,25 +11,44 @@ from langgraph.types import Command
 from pydantic import BaseModel
 
 from bootstrap.settings import settings
-from cys_core.application.ports import ModelConnector
+from cys_core.application.ports import ModelConnector, PersistenceContext
 from cys_core.domain.agents.policies import build_interrupt_on
+from cys_core.domain.memory.services import MemoryReadService
 from cys_core.domain.messaging import extract_message_content
 from cys_core.domain.security.exceptions import SecurityViolation
 from cys_core.domain.security.factory import get_input_sanitizer, get_output_guardrails
 from cys_core.domain.security.prompt_context import REFUSAL_MESSAGE
 from cys_core.domain.workers.job_budget import JobBudgetExceeded, JobBudgetTracker
 from cys_core.llm import get_model_connector
+from cys_core.middleware.memory_context_middleware import MemoryContextMiddleware
 from cys_core.middleware.prompt_context_middleware import PromptContextMiddleware
 from cys_core.middleware.scope_middleware import ScopeMiddleware
 from cys_core.middleware.security_middleware import SecurityMiddleware
 from cys_core.observability.langfuse_tags import merge_langchain_config
 from cys_core.observability.metrics import metrics
-from cys_core.persistence import get_persistence_connector
 from cys_core.registry.agents import AgentDefinition, AgentRegistry, get_agent_registry
 from cys_core.registry.schemas import schema_registry
 from cys_core.registry.tools import tool_registry
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def _default_sync_persistence() -> PersistenceContext:
+    from bootstrap.container import get_container
+
+    return get_container().get_persistence_context()
+
+
+async def _default_async_persistence() -> PersistenceContext:
+    from bootstrap.container import get_container
+
+    return await get_container().get_async_persistence_context()
+
+
+def _default_memory_reader() -> MemoryReadService | None:
+    from cys_core.infrastructure.memory.factory import get_memory_read_service
+
+    return get_memory_read_service()
 
 
 class AgentRuntime:
@@ -39,13 +58,39 @@ class AgentRuntime:
         self,
         registry: AgentRegistry | None = None,
         model_connector: ModelConnector | None = None,
+        *,
+        persistence_context: PersistenceContext | None = None,
+        async_persistence_provider: Callable[[], Any] | None = None,
+        sync_persistence_provider: Callable[[], PersistenceContext] | None = None,
+        memory_reader: MemoryReadService | None = None,
     ) -> None:
         self.registry = registry or get_agent_registry()
         self.model_connector = model_connector or get_model_connector()
         self.sanitizer = get_input_sanitizer()
         self.guardrails = get_output_guardrails()
+        self._persistence_context = persistence_context
+        self._sync_persistence_provider = sync_persistence_provider or _default_sync_persistence
+        self._async_persistence_provider = async_persistence_provider or _default_async_persistence
+        self._memory_reader = memory_reader if memory_reader is not None else _default_memory_reader()
 
-    def _build_middleware(self, defn: AgentDefinition, session_id: str) -> list[Any]:
+    def _sync_persistence(self) -> PersistenceContext:
+        if self._persistence_context is not None:
+            return self._persistence_context
+        return self._sync_persistence_provider()
+
+    async def _async_persistence(self) -> PersistenceContext:
+        if self._persistence_context is not None:
+            return self._persistence_context
+        return await self._async_persistence_provider()
+
+    def _build_middleware(
+        self,
+        defn: AgentDefinition,
+        session_id: str,
+        *,
+        tenant_id: str = "default",
+        investigation_id: str = "",
+    ) -> list[Any]:
         middleware: list[Any] = [
             PromptContextMiddleware(
                 agent_id=defn.name,
@@ -54,9 +99,21 @@ class AgentRuntime:
                 sanitizer=self.sanitizer,
                 guardrails=self.guardrails,
             ),
-            ScopeMiddleware(allowed_tools=defn.allowed_tools),
-            SecurityMiddleware(agent_id=defn.name, session_id=session_id),
         ]
+        if self._memory_reader is not None and investigation_id:
+            middleware.append(
+                MemoryContextMiddleware(
+                    self._memory_reader,
+                    tenant_id=tenant_id,
+                    investigation_id=investigation_id,
+                )
+            )
+        middleware.extend(
+            [
+                ScopeMiddleware(allowed_tools=defn.allowed_tools),
+                SecurityMiddleware(agent_id=defn.name, session_id=session_id),
+            ]
+        )
         interrupt_on = build_interrupt_on(defn.hitl_tools)
         if interrupt_on:
             middleware.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
@@ -70,23 +127,31 @@ class AgentRuntime:
         session_id: str = "default",
         use_checkpointer: bool = True,
         extra_tools: list | None = None,
+        tenant_id: str = "default",
+        investigation_id: str = "",
     ):
         tools = tool_registry.resolve(defn.tools)
         if extra_tools:
             tools = [*tools, *extra_tools]
 
-        checkpointer = None
-        if use_checkpointer:
-            checkpointer = get_persistence_connector().open(force_memory=True).checkpointer
+        persistence = self._sync_persistence()
+        checkpointer = persistence.checkpointer if use_checkpointer else None
+        store = persistence.store if use_checkpointer else None
 
         schema = schema_registry.get(defn.schema_name)
         return create_agent(
             model=model or self.model_connector.create_model(),
             tools=tools,
             system_prompt=defn.system_prompt,
-            middleware=self._build_middleware(defn, session_id),
+            middleware=self._build_middleware(
+                defn,
+                session_id,
+                tenant_id=tenant_id,
+                investigation_id=investigation_id,
+            ),
             response_format=schema,
             checkpointer=checkpointer,
+            store=store,
             name=defn.name,
         )
 
@@ -99,6 +164,8 @@ class AgentRuntime:
         use_checkpointer: bool = True,
         extra_tools: list | None = None,
         sandbox_tools: list | None = None,
+        tenant_id: str = "default",
+        investigation_id: str = "",
     ):
         if sandbox_tools is not None:
             tools = sandbox_tools
@@ -107,18 +174,24 @@ class AgentRuntime:
             if extra_tools:
                 tools = [*tools, *extra_tools]
 
-        checkpointer = None
-        if use_checkpointer:
-            checkpointer = (await get_persistence_connector().open_async(force_memory=True)).checkpointer
+        persistence = await self._async_persistence()
+        checkpointer = persistence.checkpointer if use_checkpointer else None
+        store = persistence.store if use_checkpointer else None
 
         schema = schema_registry.get(defn.schema_name)
         return create_agent(
             model=model or self.model_connector.create_model(),
             tools=tools,
             system_prompt=defn.system_prompt,
-            middleware=self._build_middleware(defn, session_id),
+            middleware=self._build_middleware(
+                defn,
+                session_id,
+                tenant_id=tenant_id,
+                investigation_id=investigation_id,
+            ),
             response_format=schema,
             checkpointer=checkpointer,
+            store=store,
             name=defn.name,
         )
 
@@ -128,10 +201,17 @@ class AgentRuntime:
         user_input: str,
         *,
         session_id: str | None = None,
+        tenant_id: str = "default",
+        investigation_id: str = "",
     ) -> dict[str, Any]:
         defn = self.registry.get(name)
         sid = session_id or f"agent-{name}"
-        agent = self.create(defn, session_id=sid)
+        agent = self.create(
+            defn,
+            session_id=sid,
+            tenant_id=tenant_id,
+            investigation_id=investigation_id,
+        )
         schema = schema_registry.get(defn.schema_name)
         return self._invoke(agent, user_input, session_id=sid, schema=schema)
 
@@ -146,11 +226,25 @@ class AgentRuntime:
         job_id: str = "",
         event_id: str = "",
         correlation_id: str = "",
+        tenant_id: str = "default",
+        investigation_id: str = "",
         sandbox_id: str = "",
     ) -> dict[str, Any]:
         defn = self.registry.get(name)
         sid = session_id or f"agent-{name}"
-        agent = await self.acreate(defn, session_id=sid, sandbox_tools=sandbox_tools)
+        inv_id = investigation_id or correlation_id or event_id
+        entries_loaded = 0
+        if self._memory_reader is not None and inv_id:
+            entries_loaded = len(
+                self._memory_reader.query_investigation(tenant_id, inv_id, limit=10, requesting_tenant_id=tenant_id)
+            )
+        agent = await self.acreate(
+            defn,
+            session_id=sid,
+            sandbox_tools=sandbox_tools,
+            tenant_id=tenant_id,
+            investigation_id=inv_id,
+        )
         schema = schema_registry.get(defn.schema_name)
         return await self._ainvoke(
             agent,
@@ -162,7 +256,10 @@ class AgentRuntime:
             job_id=job_id,
             event_id=event_id,
             correlation_id=correlation_id,
+            investigation_id=inv_id,
+            tenant_id=tenant_id,
             sandbox_id=sandbox_id,
+            memory_entries_loaded=entries_loaded,
         )
 
     async def aresume(self, name: str, session_id: str, resume: dict[str, Any]) -> dict[str, Any]:
@@ -212,7 +309,10 @@ class AgentRuntime:
         job_id: str = "",
         event_id: str = "",
         correlation_id: str = "",
+        investigation_id: str = "",
+        tenant_id: str = "default",
         sandbox_id: str = "",
+        memory_entries_loaded: int = 0,
     ) -> dict[str, Any]:
         try:
             sanitized = self.sanitizer.sanitize(user_input, source="user")
@@ -230,7 +330,10 @@ class AgentRuntime:
             job_id=job_id,
             event_id=event_id,
             correlation_id=correlation_id,
+            investigation_id=investigation_id,
+            tenant_id=tenant_id,
             sandbox_id=sandbox_id,
+            memory_entries_loaded=memory_entries_loaded,
         )
         try:
             result = await agent.ainvoke(
@@ -294,4 +397,3 @@ class AgentRuntime:
 @lru_cache
 def get_runtime() -> AgentRuntime:
     return AgentRuntime()
-

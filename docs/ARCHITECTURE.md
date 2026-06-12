@@ -23,35 +23,51 @@ cys-agi — **event-driven** multi-agent SOC platform с тремя плоско
 | Delivery | `interfaces/` + root shims | FastAPI, workers, control, gateways |
 | DI | `bootstrap/container.py` | wiring портов |
 
-## Data flow: event-driven
+## Data flow: event-driven + MAS memory
 
 ```
 SIEM / NetFlow / Doc / Manual
          │
          ▼
-   EventIngress.ingest()  ──► security.events.raw (Kafka, optional)
+   EventIngress.ingest() / RouterConsumer  ──► security.events.raw (Kafka)
+         │
+         │  DispatchEvent (shared use-case)
+         ├── manual.investigation ──► PlanInvestigation (LLM planner)
+         │                              └── sequential enqueue (depends_on_persona chain)
+         └── other events ──► EventRouter (agents/plans/*.yaml, parallel fan-out)
          │
          ▼
-   EventRouter (agents/plans/*.yaml routing rules)
-         │
-         ▼
-   JobQueue.enqueue(WorkerJob)   # Redis or worker.jobs.{persona} (Kafka)
+   JobQueue.enqueue(WorkerJob)   # correlation_id = investigation_id
          │
          ▼
    WorkerOrchestrator.run_job()
          │
-         ├── SandboxConnector.create(run_id, persona)   # local | k8s
+         ├── InvestigationStateStore + EpisodicMemoryStore (read prior findings)
+         ├── SandboxConnector.create(run_id, persona)
          ├── AgentRuntime.arun(persona, payload, sandbox_tools)
-         │      └── MCP Tool Gateway (USE_TOOL_GATEWAY) + load_skill
+         │      ├── Postgres checkpointer (thread: worker:{persona}:{job_id})
+         │      ├── LangGraph store (namespace KV)
+         │      ├── MemoryContextMiddleware (episodic injection)
+         │      └── MCP Tool Gateway + load_skill
          ├── OutputGuardrails.validate_schema()
-         ├── SecureAgentBus.send_message(finding)
-         ├── BusTransport.publish(critic, coordinator)  # bus.findings
+         ├── EpisodicMemoryStore.append(pending_finding, trust=0.3)
+         ├── SecureAgentBus.send_message → bus_recipients + critic
          └── SandboxConnector.destroy(run_id)
          │
          ▼
-   CriticService  — trust_score, L2 HITL, escalation events
-   CoordinatorService  — user narrative
+   CriticService  — trust_score, L2 HITL, escalation, promote to finding, revision enqueue
+   CoordinatorService  — LLM narrative from InvestigationState + memory
 ```
+
+### Memory layers
+
+| Layer | Store | Key | Purpose |
+|-------|-------|-----|---------|
+| Thread (short-term) | Postgres LangGraph checkpointer | `worker:{persona}:{job_id}` | HITL pause/resume within job |
+| Job / HITL metadata | `worker_jobs` (Postgres) | `job_id` | Durable pause/resume across pod restart |
+| Episodic (cross-session) | `agent_memory_entries` | `(tenant_id, investigation_id)` | `finding` (critic-approved) + `pending_finding` (pre-critic) |
+| Investigation state | `investigation_states` | `(tenant_id, investigation_id)` | Plan, completed personas, summaries |
+| Knowledge (RAG) | Qdrant (optional) | tenant ACL | Playbooks/runbooks — `USE_REAL_EMBEDDINGS` opt-in |
 
 ## Control plane (production)
 
@@ -95,15 +111,19 @@ SIEM / NetFlow / Doc / Manual
 | Bus | SecureAgentBus — HMAC, trust levels, escalation-only paths |
 | Output | OutputGuardrails — schema, PII, exfiltration |
 
-## Ports (`cys_core/application/ports.py`)
+## Ports (`cys_core/application/ports/`)
 
 | Port | Реализация |
 |------|------------|
-| `PersistenceConnector` | `cys_core/persistence.py` |
+| `PersistenceConnector` | `cys_core/persistence.py` (`auto` \| `memory` \| `postgres`) |
+| `JobStorePort` | `cys_core/infrastructure/job_store/` (Postgres \| InMemory) |
+| `EpisodicMemoryStore` | `cys_core/infrastructure/memory/stores.py` |
 | `ModelConnector` | `cys_core/llm/` |
 | `SandboxConnector` | `cys_core/infrastructure/sandbox.py` (`local` \| `k8s`) |
 | `JobQueueConnector` | `cys_core/infrastructure/queue.py` (Redis \| Kafka) |
-| `AgentTransportConnector` | `cys_core/infrastructure/bus_transport.py` (Redis \| Kafka) |
+| `AgentTransportConnector` | `cys_core/infrastructure/bus_transport.py` (Redis + subscriber \| Kafka) |
+
+`bootstrap/container.py` — composition root: `get_persistence_connector()`, `get_job_store()`, memory stores.
 
 ## Observability
 

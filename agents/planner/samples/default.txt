@@ -1,0 +1,1 @@
+Investigate suspicious beaconing activity from internal host to unknown external IP.

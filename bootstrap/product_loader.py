@@ -47,38 +47,48 @@ def _parse_prompt_md(path: Path) -> tuple[dict, str]:
     return {}, text.strip()
 
 
+def _load_agent_from_dir(agent_dir: Path, product: ProductContext) -> AgentDefinition | None:
+    yaml_path = agent_dir / "agent.yaml"
+    prompt_path = _resolve_prompt_path(agent_dir)
+    if not yaml_path.exists() or prompt_path is None:
+        return None
+    config = AgentConfig.model_validate(yaml.safe_load(yaml_path.read_text(encoding="utf-8")))
+    _, body = _parse_prompt_md(prompt_path)
+    sample_path = agent_dir / config.sample
+    sample_input = sample_path.read_text(encoding="utf-8").strip() if sample_path.exists() else None
+    persona = body
+    if config.language == "ru":
+        persona = f"{body}{LANGUAGE_SUFFIX}"
+    system_ctx = product.build_system_context(persona)
+    return AgentDefinition(
+        name=config.name,
+        description=config.description,
+        role=config.role,
+        system_prompt=system_ctx.text,
+        system_prompt_digest=system_ctx.digest,
+        schema_name=config.output_schema,
+        tools=config.tools,
+        skills=config.skills,
+        hitl_tools=config.hitl_tools,
+        trust_level=config.trust_level,
+        bus_recipients=config.bus_recipients,
+        sample_input=sample_input,
+        interrupt_on=config.interrupt_on,
+        skill_path=agent_dir,
+    )
+
+
 def load_agent_definitions(root: Path | None = None) -> dict[str, AgentDefinition]:
-    """Read all personas under agents/personas/ and return AgentDefinition map."""
+    """Read personas under agents/personas/ and control agents under agents/planner/."""
     base = root or default_agents_root()
     product = ProductContext(base)
     agents: dict[str, AgentDefinition] = {}
-    for agent_dir in _iter_persona_dirs(base):
-        yaml_path = agent_dir / "agent.yaml"
-        prompt_path = _resolve_prompt_path(agent_dir)
-        if not yaml_path.exists() or prompt_path is None:
-            continue
-        config = AgentConfig.model_validate(yaml.safe_load(yaml_path.read_text(encoding="utf-8")))
-        _, body = _parse_prompt_md(prompt_path)
-        sample_path = agent_dir / config.sample
-        sample_input = sample_path.read_text(encoding="utf-8").strip() if sample_path.exists() else None
-        persona = body
-        if config.language == "ru":
-            persona = f"{body}{LANGUAGE_SUFFIX}"
-        system_ctx = product.build_system_context(persona)
-        agents[config.name] = AgentDefinition(
-            name=config.name,
-            description=config.description,
-            role=config.role,
-            system_prompt=system_ctx.text,
-            system_prompt_digest=system_ctx.digest,
-            schema_name=config.output_schema,
-            tools=config.tools,
-            skills=config.skills,
-            hitl_tools=config.hitl_tools,
-            trust_level=config.trust_level,
-            bus_recipients=config.bus_recipients,
-            sample_input=sample_input,
-            interrupt_on=config.interrupt_on,
-            skill_path=agent_dir,
-        )
+    agent_dirs = list(_iter_persona_dirs(base))
+    planner_dir = base / "planner"
+    if planner_dir.is_dir():
+        agent_dirs.append(planner_dir)
+    for agent_dir in agent_dirs:
+        definition = _load_agent_from_dir(agent_dir, product)
+        if definition is not None:
+            agents[definition.name] = definition
     return agents

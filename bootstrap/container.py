@@ -6,8 +6,10 @@ from typing import TYPE_CHECKING, Any
 from bootstrap.settings import Settings, get_settings
 
 if TYPE_CHECKING:
+    from cys_core.application.ports import PersistenceContext
     from cys_core.application.ports.bus import AgentTransportConnector
     from cys_core.application.ports.job_queue import JobQueueConnector
+    from cys_core.application.ports.memory import EpisodicMemoryStore, InvestigationStateStore
     from cys_core.application.ports.sandbox import SandboxConnector
 
 
@@ -32,13 +34,37 @@ class Container:
 
         return get_sandbox_connector(settings=self.settings)
 
+    def get_persistence_context(self) -> PersistenceContext:
+        from cys_core.persistence import get_persistence_connector
+
+        return get_persistence_connector(self.settings.persistence_connector).open()
+
+    async def get_async_persistence_context(self) -> PersistenceContext:
+        from cys_core.persistence import get_persistence_connector
+
+        connector = get_persistence_connector(self.settings.persistence_connector)
+        return await connector.open_async()
+
+    def get_job_store(self):
+        from interfaces.control_plane.job_store import get_job_store
+
+        return get_job_store(self.settings)
+
+    def get_episodic_memory_store(self) -> EpisodicMemoryStore:
+        from cys_core.infrastructure.memory.factory import get_episodic_memory_store
+
+        return get_episodic_memory_store(settings=self.settings)
+
+    def get_investigation_state_store(self) -> InvestigationStateStore:
+        from cys_core.infrastructure.memory.factory import get_investigation_state_store
+
+        return get_investigation_state_store(settings=self.settings)
+
     def wire_hitl_pause(self) -> None:
         from cys_core.infrastructure.kafka_paused import publish_paused_job_sync
         from cys_core.middleware import hitl_pause
         from cys_core.observability.metrics import metrics
-        from interfaces.control_plane.job_store import get_job_store
-
-        store = get_job_store()
+        store = self.get_job_store()
 
         class _JobStoreHitlAdapter:
             def pause_for_hitl(self, pending: Any, preview: dict[str, Any]) -> None:

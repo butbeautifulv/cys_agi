@@ -3,7 +3,9 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
+from bootstrap.container import get_container
 from bootstrap.settings import settings
+from cys_core.application.use_cases.plan_investigation import PlanInvestigation
 from cys_core.application.use_cases.route_and_enqueue import RouteAndEnqueueEvent
 from cys_core.domain.events.models import RoutingDecision, SecurityEvent
 from cys_core.domain.events.router import EventRouter
@@ -23,6 +25,7 @@ class EventIngress:
     ) -> None:
         self.router = router or EventRouter.from_plans_dir(default_agents_root() / "plans")
         self.orchestrator = orchestrator or WorkerOrchestrator()
+        container = get_container()
         self._route_and_enqueue = RouteAndEnqueueEvent(
             router=self.router,
             enqueuer=self.orchestrator,
@@ -30,6 +33,10 @@ class EventIngress:
             publish_raw_event_sync=publish_raw_event_sync,
             publish_raw_event=publish_raw_event,
             record_event_ingested=metrics.record_event_ingested,
+            plan_investigation=PlanInvestigation(
+                runtime=self.orchestrator.runtime,
+                investigation_store=container.get_investigation_state_store(),
+            ),
         )
 
     def ingest(
@@ -41,6 +48,7 @@ class EventIngress:
         source: str = "",
         event_id: str | None = None,
         correlation_id: str = "",
+        tenant_id: str = "default",
     ) -> tuple[SecurityEvent, RoutingDecision, list[str]]:
         return self._route_and_enqueue.execute(
             event_type,
@@ -49,6 +57,7 @@ class EventIngress:
             source=source,
             event_id=event_id,
             correlation_id=correlation_id,
+            tenant_id=tenant_id,
         )
 
     async def aingest(
@@ -60,6 +69,7 @@ class EventIngress:
         source: str = "",
         event_id: str | None = None,
         correlation_id: str = "",
+        tenant_id: str = "default",
     ) -> tuple[SecurityEvent, RoutingDecision, list[str]]:
         return await self._route_and_enqueue.aexecute(
             event_type,
@@ -68,6 +78,7 @@ class EventIngress:
             source=source,
             event_id=event_id,
             correlation_id=correlation_id,
+            tenant_id=tenant_id,
         )
 
 

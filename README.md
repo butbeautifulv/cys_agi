@@ -6,12 +6,15 @@ Secure event-driven multi-agent cybersecurity platform with ephemeral sandbox wo
 
 ## Возможности
 
-- 6 config-driven агентов: 4 **workers** (redteam, network, soc, compliance) + 2 **control** (critic, coordinator)
+- 7 config-driven агентов: 4 **workers** + **planner** + 2 **control** (critic, coordinator)
 - Event-driven dispatch: `SecurityEvent` → `EventRouter` → Redis job queue → ephemeral worker
 - Sandbox lifecycle: поднялся → выполнил playbook → опубликовал finding → уничтожился
 - Control plane: critic (валидация) + coordinator (статус для пользователя) как async bus subscribers
 - DDD domain: `events`, `workers`, `findings`, `security` policies
 - Secure-by-design: MILS boundaries, A2A envelopes, mTLS metadata, scope/HITL middleware
+- Cross-session episodic memory + investigation state (Postgres)
+- Durable JobStore (HITL pause/resume survives restart)
+- LLM planner for `manual.investigation` with sequential worker chain
 - Kafka/Redpanda event bus (`USE_KAFKA`), worker daemons, router/critic/coordinator consumers
 - MCP Tool Gateway (PEP), HITL L1/L2, DoW job budgets
 - Secure RAG (`rag_query`), Skill Gateway (`load_skill`), K8s sandbox connector
@@ -30,6 +33,7 @@ docker compose up -d   # Postgres + Redis + Redpanda + Qdrant
 cp .env.example .env   # LLM API key
 
 uv run cys-agi info
+uv run cys-agi migrate   # apply migrations/*.sql
 
 # Ingest SIEM event → enqueue SOC worker
 uv run cys-agi ingest -t siem.alert -p '{"alert":"powershell encoded command"}' -s high
@@ -62,7 +66,8 @@ uv run cys-agi serve --port 8080
 | `coordinator` | Coordinator bus consumer |
 | `status` | Snapshot control plane (findings, narratives) |
 | `serve [--port 8080]` | FastAPI event/status server |
-| `session -g "..."` | Manual investigation (`manual.investigation` event) |
+| `session -g "..."` | Manual investigation (`manual.investigation` + LLM planner) |
+| `migrate` | Apply SQL migrations to Postgres |
 | `agent <worker>` | Debug: один worker без очереди |
 | `adversarial-test` | `pytest tests/` |
 

@@ -61,6 +61,25 @@ class CysMetrics:
             "Rejected HITL resume attempts (forged approval or hash mismatch)",
             ["reason"],
         )
+        self.memory_reads = Counter(
+            "cys_memory_reads_total",
+            "Episodic memory reads for investigation context",
+            ["tenant"],
+        )
+        self.memory_writes = Counter(
+            "cys_memory_writes_total",
+            "Episodic memory writes after critic approval",
+            ["tenant", "memory_type"],
+        )
+        self.investigations_active = Gauge(
+            "cys_investigations_active",
+            "Open or in-progress investigations",
+        )
+        self.persistence_fallback = Counter(
+            "cys_persistence_fallback_total",
+            "Silent fallbacks from durable persistence to in-memory stores",
+            ["component"],
+        )
 
     def record_event_ingested(self, event_type: str) -> None:
         self.events_ingested.labels(event_type=event_type).inc()
@@ -89,6 +108,19 @@ class CysMetrics:
 
     def record_approval_bypass(self, reason: str) -> None:
         self.approval_bypass_attempts.labels(reason=reason).inc()
+
+    def record_memory_read(self, tenant: str, *, entries_loaded: int) -> None:
+        if entries_loaded > 0:
+            self.memory_reads.labels(tenant=tenant).inc(entries_loaded)
+
+    def record_memory_write(self, tenant: str, memory_type: str) -> None:
+        self.memory_writes.labels(tenant=tenant, memory_type=memory_type).inc()
+
+    def refresh_investigations_active(self, count: int) -> None:
+        self.investigations_active.set(count)
+
+    def record_persistence_fallback(self, component: str) -> None:
+        self.persistence_fallback.labels(component=component).inc()
 
     @contextmanager
     def track_worker_job(self, persona: str) -> Iterator[dict[str, str]]:

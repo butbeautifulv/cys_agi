@@ -152,6 +152,14 @@ def cmd_adversarial_test(_args: argparse.Namespace) -> int:
     return pytest.main(["-q", "tests"])
 
 
+def cmd_migrate(_args: argparse.Namespace) -> int:
+    from cys_core.infrastructure.migrations.runner import apply_migrations
+
+    applied = apply_migrations(settings.postgres_url)
+    print(json.dumps({"applied": applied}, indent=2, ensure_ascii=False))
+    return 0
+
+
 def cmd_info(_args: argparse.Namespace) -> int:
     registry = get_agent_registry()
     print(
@@ -168,6 +176,10 @@ def cmd_info(_args: argparse.Namespace) -> int:
                 "postgres_url": settings.postgres_url,
                 "redis_url": settings.redis_url,
                 "use_memory_fallback": settings.use_memory_fallback,
+                "persistence_connector": settings.persistence_connector,
+                "job_store_connector": settings.job_store_connector,
+                "siem_adapter": settings.siem_adapter,
+                "use_real_embeddings": settings.use_real_embeddings,
                 "use_kafka": settings.use_kafka,
                 "kafka_bootstrap_servers": settings.kafka_bootstrap_servers,
                 "agents_root": settings.agents_root,
@@ -237,6 +249,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     info = sub.add_parser("info", help="Show configuration summary")
     info.set_defaults(func=cmd_info)
+
+    migrate = sub.add_parser("migrate", help="Apply SQL migrations to Postgres")
+    migrate.set_defaults(func=cmd_migrate)
 
     return parser
 

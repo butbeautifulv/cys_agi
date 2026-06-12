@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from bootstrap.container import get_container
 from bootstrap.settings import settings
 from cys_core.application.use_cases.run_worker_job import RunWorkerJob
 from cys_core.domain.security.agent_bus import AgentTrustLevel, SecureAgentBus
@@ -11,6 +12,7 @@ from cys_core.domain.workers.budgets import enrich_job_budget
 from cys_core.domain.workers.job_budget import JobBudgetTracker
 from cys_core.domain.workers.models import RunResult, WorkerJob
 from cys_core.infrastructure.bus_transport import get_bus_transport
+from cys_core.infrastructure.memory.factory import get_memory_read_service, get_memory_write_service
 from cys_core.infrastructure.queue import get_job_queue
 from cys_core.infrastructure.sandbox import get_sandbox_connector
 from cys_core.observability.metrics import metrics
@@ -19,7 +21,6 @@ from cys_core.registry.agents import AgentRegistry, get_agent_registry
 from cys_core.registry.mcp_tools import mcp_tool_registry
 from cys_core.registry.skills_tool import make_load_skill_tool
 from cys_core.runtime.agent import AgentRuntime, get_runtime
-from interfaces.control_plane.job_store import get_job_store
 from interfaces.gateways.tool.policy import clear_chain_state
 
 _TRUST_MAP = {
@@ -30,9 +31,13 @@ _TRUST_MAP = {
 }
 
 
-def build_agent_bus(registry: AgentRegistry | None = None, signing_key: bytes = b"cys-agi-bus-key") -> SecureAgentBus:
+def build_agent_bus(
+    registry: AgentRegistry | None = None,
+    signing_key: bytes | None = None,
+) -> SecureAgentBus:
+    key = signing_key if signing_key is not None else settings.bus_signing_key_bytes
     reg = registry or get_agent_registry()
-    bus = SecureAgentBus(signing_key=signing_key)
+    bus = SecureAgentBus(signing_key=key)
     for defn in reg.all():
         bus.register_agent(
             defn.name,
@@ -62,12 +67,13 @@ class WorkerOrchestrator:
         self.persona = persona
         self.runtime = runtime or get_runtime()
         self.registry = registry or get_agent_registry()
-        self.bus = bus or build_agent_bus(self.registry)
+        self.bus = bus or build_agent_bus(self.registry, signing_key=settings.bus_signing_key_bytes)
         self.sandbox = get_sandbox_connector()
         self.queue = get_job_queue(persona=persona)
         self.transport = get_bus_transport()
         self.sanitizer = get_input_sanitizer()
         self.guardrails = get_output_guardrails()
+        container = get_container()
         self._run_worker_job = RunWorkerJob(
             runtime=self.runtime,
             registry=self.registry,
@@ -77,15 +83,33 @@ class WorkerOrchestrator:
             queue=self.queue,
             sanitizer=self.sanitizer,
             guardrails=self.guardrails,
-            job_store=get_job_store(),
+            job_store=get_container().get_job_store(),
             use_tool_gateway=settings.use_tool_gateway,
             resolve_mcp_tools=mcp_tool_registry.resolve,
             resolve_legacy_tools=_resolve_legacy_tools,
             make_load_skill_tool=make_load_skill_tool,
+            memory_reader=get_memory_read_service(),
+            memory_writer=get_memory_write_service(),
+            investigation_store=container.get_investigation_state_store(),
             record_sanitizer_block=metrics.record_sanitizer_block,
+            record_memory_write=metrics.record_memory_write,
         )
 
     async def run_job(self, job: WorkerJob) -> RunResult:
+        if job.depends_on_persona:
+            investigation_id = job.correlation_id or job.event_id
+            container = get_container()
+            state = container.get_investigation_state_store().get(job.tenant_id, investigation_id)
+            completed = state.completed_personas if state is not None else []
+            if job.depends_on_persona not in completed:
+                await self.queue.aenqueue(job.model_dump())
+                return RunResult(
+                    job_id=job.job_id,
+                    persona=job.persona,
+                    success=False,
+                    error=f"dependency_not_ready:{job.depends_on_persona}",
+                )
+
         budgeted = enrich_job_budget(job)
         run_id = job.job_id
         session_id = f"worker:{job.persona}:{run_id}"
@@ -128,8 +152,11 @@ class WorkerOrchestrator:
         playbook_id: str = "",
         payload: dict[str, Any] | None = None,
         correlation_id: str = "",
+        tenant_id: str = "default",
+        sequential: bool = False,
     ) -> list[WorkerJob]:
         jobs: list[WorkerJob] = []
+        previous_persona = ""
         for persona in personas:
             job_id = f"{persona}-{event_id}-{uuid.uuid4().hex[:8]}"
             jobs.append(
@@ -140,8 +167,12 @@ class WorkerOrchestrator:
                     playbook_id=playbook_id,
                     payload=payload or {},
                     correlation_id=correlation_id or event_id,
+                    tenant_id=tenant_id,
+                    depends_on_persona=previous_persona if sequential else "",
                 )
             )
+            if sequential:
+                previous_persona = persona
         return jobs
 
     def enqueue_from_routing_sync(
@@ -152,6 +183,8 @@ class WorkerOrchestrator:
         playbook_id: str = "",
         payload: dict[str, Any] | None = None,
         correlation_id: str = "",
+        tenant_id: str = "default",
+        sequential: bool = False,
     ) -> list[str]:
         job_ids: list[str] = []
         for job in self._jobs_for_routing(
@@ -160,6 +193,8 @@ class WorkerOrchestrator:
             playbook_id=playbook_id,
             payload=payload,
             correlation_id=correlation_id,
+            tenant_id=tenant_id,
+            sequential=sequential,
         ):
             self.queue.enqueue(job.model_dump())
             job_ids.append(job.job_id)
@@ -173,6 +208,8 @@ class WorkerOrchestrator:
         playbook_id: str = "",
         payload: dict[str, Any] | None = None,
         correlation_id: str = "",
+        tenant_id: str = "default",
+        sequential: bool = False,
     ) -> list[str]:
         job_ids: list[str] = []
         for job in self._jobs_for_routing(
@@ -181,6 +218,8 @@ class WorkerOrchestrator:
             playbook_id=playbook_id,
             payload=payload,
             correlation_id=correlation_id,
+            tenant_id=tenant_id,
+            sequential=sequential,
         ):
             await self.queue.aenqueue(job.model_dump())
             job_ids.append(job.job_id)

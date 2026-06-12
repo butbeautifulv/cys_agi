@@ -30,10 +30,19 @@ Runtime code depends on ports, not concrete backends:
 - `ModelConnector`: current `litellm`, swappable by registering another connector
 - `AgentTransportConnector`: A2A transport contract with mandatory mTLS flag
 
-Configure persistence with:
+Configure persistence and durable job state with:
 
 ```bash
 PERSISTENCE_CONNECTOR=auto|memory|postgres
+JOB_STORE_CONNECTOR=auto|memory|postgres
+BUS_SIGNING_KEY=<secret>          # required in prod; not the dev default
+USE_MEMORY_FALLBACK=false         # prod must fail-closed if Postgres unavailable
+```
+
+Apply SQL migrations before first prod start:
+
+```bash
+cys-agi migrate
 ```
 
 ## A2A + mTLS
@@ -61,10 +70,10 @@ Networked deployments should terminate or pass through mTLS at the agent transpo
 
 - multi-stage build;
 - dependency install in builder stage;
-- `compileall` for Python modules;
-- minimal runtime stage;
+- `compileall` for `bootstrap`, `cys_core`, `interfaces`, `connectors`;
+- minimal runtime stage (`ENTRYPOINT cys-agi`);
 - non-root UID/GID `10001`;
-- no shell entrypoint.
+- `PERSISTENCE_CONNECTOR=postgres`, `JOB_STORE_CONNECTOR=postgres` by default.
 
 `docker-compose.secure.yml` adds:
 

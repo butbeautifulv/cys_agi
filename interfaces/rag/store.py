@@ -63,8 +63,21 @@ class QdrantVectorStore:
             self._client = None
 
     def _vector(self, text: str) -> list[float]:
+        if settings.use_real_embeddings:
+            return self._embedding_vector(text)
         digest = sum(ord(c) for c in text[:64]) or 1
         return [((digest >> (i * 4)) % 100) / 100.0 for i in range(8)]
+
+    def _embedding_vector(self, text: str) -> list[float]:
+        try:
+            from litellm import embedding
+
+            response = embedding(model=settings.llm_model, input=[text])
+            vector = response.data[0]["embedding"]
+            return [float(value) for value in vector]
+        except Exception:
+            digest = sum(ord(c) for c in text[:64]) or 1
+            return [((digest >> (i * 4)) % 100) / 100.0 for i in range(8)]
 
     def upsert(self, chunks: list[RagChunk]) -> int:
         if self._client is None:

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable, Protocol
+from collections.abc import Callable
+from typing import Any, Awaitable, Protocol
 
+from cys_core.application.ports.memory import InvestigationStateStore
+from cys_core.domain.memory.services import MemoryWriteService
 from cys_core.domain.security.guardrails import OutputGuardrails
 
 
@@ -13,7 +16,7 @@ class CriticStatusStore(Protocol):
 
 
 class ProcessFindingCritic:
-    """Validate finding envelope, optional L2 HITL, and escalation."""
+    """Validate finding envelope, optional L2 HITL, escalation, and episodic memory."""
 
     def __init__(
         self,
@@ -23,12 +26,20 @@ class ProcessFindingCritic:
         trust_score_threshold: float,
         publish_awaiting_approval: Callable[[dict[str, Any]], Awaitable[None]],
         publish_escalation_event: Callable[..., Awaitable[bool]],
+        memory_writer: MemoryWriteService | None = None,
+        investigation_store: InvestigationStateStore | None = None,
+        record_memory_write: Callable[[str, str], None] | None = None,
+        enqueue_revision: Callable[[dict[str, Any], str], Awaitable[None]] | None = None,
     ) -> None:
         self.guardrails = guardrails
         self.store = store
         self.trust_score_threshold = trust_score_threshold
         self.publish_awaiting_approval = publish_awaiting_approval
         self.publish_escalation_event = publish_escalation_event
+        self.memory_writer = memory_writer
+        self.investigation_store = investigation_store
+        self.record_memory_write = record_memory_write
+        self.enqueue_revision = enqueue_revision
 
     def _trust_score(self, payload: dict[str, Any]) -> float:
         data = payload.get("data", payload)
@@ -51,6 +62,30 @@ class ProcessFindingCritic:
 
     def _should_escalate(self, payload: dict[str, Any]) -> bool:
         return self._finding_severity(payload) in ("critical", "high")
+
+    def _persist_approved_memory(self, envelope: dict[str, Any], payload: dict[str, Any], trust_score: float) -> None:
+        if self.memory_writer is None:
+            return
+        tenant_id = str(payload.get("tenant_id", "default"))
+        investigation_id = str(payload.get("correlation_id", payload.get("event_id", "")))
+        if not investigation_id:
+            return
+        source_agent = str(envelope.get("sender", payload.get("agent", "unknown")))
+        source_job_id = str(payload.get("job_id", ""))
+        data = payload.get("data", payload)
+        finding = data if isinstance(data, dict) else {"result": data}
+        entry = self.memory_writer.append_finding(
+            tenant_id=tenant_id,
+            investigation_id=investigation_id,
+            source_agent=source_agent,
+            source_job_id=source_job_id,
+            finding=finding,
+            trust_score=trust_score,
+        )
+        if entry is not None and self.record_memory_write is not None:
+            self.record_memory_write(tenant_id, entry.memory_type)
+        if self.investigation_store is not None:
+            self.investigation_store.append_finding(tenant_id, investigation_id, finding)
 
     async def execute(self, envelope: dict[str, Any]) -> dict[str, Any]:
         payload = envelope.get("payload", {})
@@ -75,6 +110,11 @@ class ProcessFindingCritic:
             trust_score,
             self.trust_score_threshold,
         )
+        if issues and not feedback["approved"] and self.enqueue_revision is not None:
+            feedback_text = "; ".join(issues)
+            await self.enqueue_revision(envelope, feedback_text)
+            feedback["revision_enqueued"] = True
+
         if needs_hitl:
             approval_record = {
                 "event_id": payload.get("event_id"),
@@ -86,34 +126,39 @@ class ProcessFindingCritic:
             self.store.record_awaiting_approval(approval_record)
             await self.publish_awaiting_approval(approval_record)
             feedback["requires_hitl"] = True
-        elif not needs_hitl and self._should_escalate(payload):
-            severity = self._finding_severity(payload)
-            escalated = await self.publish_escalation_event(
-                event_id=f"esc-{payload.get('event_id', 'unknown')}",
-                source_persona=str(envelope.get("sender", "unknown")),
-                payload={
-                    "finding": data if isinstance(data, dict) else payload,
-                    "event_id": payload.get("event_id"),
-                    "original_sender": envelope.get("sender"),
-                },
-                severity="critical" if severity == "critical" else "high",
-                correlation_id=str(payload.get("correlation_id", payload.get("event_id", ""))),
-            )
-            feedback["escalated"] = escalated
-            if escalated:
-                self.store.record_escalation(
-                    {
+        else:
+            if feedback["approved"]:
+                self._persist_approved_memory(envelope, payload, trust_score)
+            if not needs_hitl and self._should_escalate(payload):
+                severity = self._finding_severity(payload)
+                escalated = await self.publish_escalation_event(
+                    event_id=f"esc-{payload.get('event_id', 'unknown')}",
+                    source_persona=str(envelope.get("sender", "unknown")),
+                    payload={
+                        "finding": data if isinstance(data, dict) else payload,
                         "event_id": payload.get("event_id"),
-                        "source_persona": envelope.get("sender"),
-                        "severity": severity,
-                    }
+                        "original_sender": envelope.get("sender"),
+                    },
+                    severity="critical" if severity == "critical" else "high",
+                    correlation_id=str(payload.get("correlation_id", payload.get("event_id", ""))),
                 )
+                feedback["escalated"] = escalated
+                if escalated:
+                    self.store.record_escalation(
+                        {
+                            "event_id": payload.get("event_id"),
+                            "source_persona": envelope.get("sender"),
+                            "severity": severity,
+                        }
+                    )
 
         return feedback
 
     async def escalate_after_l2_approval(self, approval_record: dict[str, Any]) -> bool:
         envelope = approval_record.get("envelope", {})
         payload = envelope.get("payload", {})
+        trust_score = self._trust_score(payload)
+        self._persist_approved_memory(envelope, payload, trust_score)
         severity = self._finding_severity(payload)
         escalated = await self.publish_escalation_event(
             event_id=f"esc-{payload.get('event_id', 'unknown')}",

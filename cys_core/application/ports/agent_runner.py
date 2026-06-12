@@ -16,6 +16,8 @@ class AgentRunner(Protocol):
         job_id: str | None = None,
         event_id: str | None = None,
         correlation_id: str | None = None,
+        tenant_id: str | None = None,
+        investigation_id: str | None = None,
         sandbox_id: str | None = None,
     ) -> dict[str, Any]: ...
 

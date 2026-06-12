@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -52,6 +53,8 @@ class RedisBusTransport:
         self._fallback = InMemoryBusTransport()
         self._handlers: dict[str, list[BusHandler]] = defaultdict(list)
         self._redis = None
+        self._subscriber_thread: threading.Thread | None = None
+        self._subscriber_channels: set[str] = set()
         cfg = settings or get_settings()
         self._redis_url = redis_url or cfg.redis_url
         try:
@@ -84,6 +87,45 @@ class RedisBusTransport:
         if self._redis is not None:
             self._redis.publish(self._channel(channel), json.dumps(message, ensure_ascii=False))
         await self._fallback.publish(channel, message)
+
+    def _dispatch_message(self, channel: str, message: dict[str, Any]) -> None:
+        for handler in self._handlers.get(channel, []):
+            result = handler(message)
+            if hasattr(result, "__await__"):
+                import asyncio
+
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    asyncio.run(result)
+                else:
+                    loop.create_task(result)
+
+    def start_subscriber_loop(self, channels: list[str] | None = None) -> None:
+        if self._redis is None or self._subscriber_thread is not None:
+            return
+        wanted = set(channels or list(self._handlers))
+        if not wanted:
+            return
+        self._subscriber_channels = wanted
+
+        def _listen() -> None:
+            pubsub = self._redis.pubsub(ignore_subscribe_messages=True)
+            for channel in self._subscriber_channels:
+                pubsub.subscribe(self._channel(channel))
+            for message in pubsub.listen():
+                if message.get("type") != "message":
+                    continue
+                raw_channel = str(message.get("channel", ""))
+                channel_name = raw_channel.removeprefix(self.CHANNEL_PREFIX)
+                try:
+                    payload = json.loads(message.get("data", "{}"))
+                except json.JSONDecodeError:
+                    continue
+                self._dispatch_message(channel_name, payload)
+
+        self._subscriber_thread = threading.Thread(target=_listen, name="redis-bus-subscriber", daemon=True)
+        self._subscriber_thread.start()
 
 
 _bus_transport: RedisBusTransport | InMemoryBusTransport | None = None

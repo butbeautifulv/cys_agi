@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 
+from bootstrap.container import get_container
+from cys_core.application.use_cases.dispatch_event import DispatchEvent
+from cys_core.application.use_cases.plan_investigation import PlanInvestigation
 from cys_core.domain.events.models import SecurityEvent
 from cys_core.domain.events.router import EventRouter
 from cys_core.infrastructure.daemon_runner import run_poll_daemon
@@ -26,6 +29,16 @@ class RouterConsumer:
         self.orchestrator = orchestrator or WorkerOrchestrator()
         self._consume_raw = consume_raw or consume_raw_event
         self._stop = False
+        container = get_container()
+        plan_investigation = PlanInvestigation(
+            runtime=self.orchestrator.runtime,
+            investigation_store=container.get_investigation_state_store(),
+        )
+        self._dispatch = DispatchEvent(
+            router=self.router,
+            enqueuer=self.orchestrator,
+            plan_investigation=plan_investigation,
+        )
 
     def request_stop(self) -> None:
         self._stop = True
@@ -34,15 +47,7 @@ class RouterConsumer:
         event = await self._consume_raw(timeout)
         if event is None:
             return False
-        decision = self.router.route(event)
-        if decision.personas:
-            await self.orchestrator.enqueue_from_routing(
-                event.id,
-                decision.personas,
-                playbook_id=decision.playbook_id,
-                payload=event.payload,
-                correlation_id=event.correlation_id or event.id,
-            )
+        await self._dispatch.dispatch_async(event, event.payload)
         return True
 
     async def run(self, *, idle_timeout: float = 30.0) -> int:

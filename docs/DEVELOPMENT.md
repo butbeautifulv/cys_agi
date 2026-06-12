@@ -41,11 +41,36 @@ docker compose exec redpanda rpk topic create security.events.raw worker.jobs.so
 
 ## Режимы работы
 
-| STAGE | Persistence | Queue/Bus |
-|-------|-------------|-----------|
-| `test` | memory | in-memory fallback |
-| `dev` | Postgres (fallback memory) | Redis or memory; Kafka if `USE_KAFKA=true` |
-| `prod` | Postgres | Kafka (Redpanda) |
+| STAGE | Persistence | Job store | Queue/Bus |
+|-------|-------------|-----------|-----------|
+| `test` | memory | in-memory | in-memory fallback |
+| `dev` | Postgres (fallback memory) | Postgres or in-memory | Redis or memory; Kafka if `USE_KAFKA=true` |
+| `prod` | Postgres (fail-closed) | Postgres (fail-closed) | Kafka (Redpanda) |
+
+### Connectors и secrets
+
+| Переменная | Значения | Назначение |
+|------------|----------|------------|
+| `PERSISTENCE_CONNECTOR` | `auto` \| `memory` \| `postgres` | LangGraph checkpointer + store |
+| `JOB_STORE_CONNECTOR` | `auto` \| `memory` \| `postgres` | HITL pause/resume + job status |
+| `USE_MEMORY_FALLBACK` | `true` \| `false` | Явный override silent fallback (dev/test) |
+| `BUS_SIGNING_KEY` | string | HMAC для SecureAgentBus (обязателен в prod) |
+| `SIEM_ADAPTER` | `mock` \| `http` | Tool `query_siem_readonly` |
+| `SIEM_BASE_URL` | URL | HTTP SIEM при `SIEM_ADAPTER=http` |
+| `USE_REAL_EMBEDDINGS` | `true` \| `false` | Litellm embeddings для Qdrant (opt-in) |
+
+В `STAGE=prod` при недоступном Postgres без `USE_MEMORY_FALLBACK=true` старт падает с `PersistenceUnavailableError` (не silent fallback). Метрика: `cys_persistence_fallback_total`.
+
+### Миграции БД
+
+```bash
+# Применить migrations/*.sql (schema_migrations tracking)
+uv run cys-agi migrate
+
+# Или вручную
+psql $POSTGRES_URL -f migrations/001_memory_tables.sql
+psql $POSTGRES_URL -f migrations/002_worker_jobs.sql
+```
 
 Локально без Docker:
 
@@ -98,10 +123,12 @@ Per-job budgets на `WorkerJob` (defaults по persona в `cys_core/domain/work
 # .env
 SANDBOX_CONNECTOR=k8s
 K8S_NAMESPACE=cys-agi
+K8S_WORKER_IMAGE=cys-agi-worker:latest
 ```
 
+При `SANDBOX_CONNECTOR=k8s` connector пытается `load_incluster_config()` / `load_kube_config()` и создать `BatchV1Api`.  
 Manifests: `deploy/k8s/worker-job-template.yaml`, `deploy/k8s/networkpolicy.yaml`.  
-Без K8s API client — fallback на local sandbox с префиксом `k8s-fallback-`.
+Без K8s API — fallback на local sandbox с префиксом `k8s-fallback-`.
 
 ## Secure Skills
 
@@ -110,7 +137,9 @@ Manifests: `deploy/k8s/worker-job-template.yaml`, `deploy/k8s/networkpolicy.yaml
 - Allowlist per persona: `skills:` в `agent.yaml`
 - Vetting внешних packs: [docs/SKILLS_VETTING.md](SKILLS_VETTING.md)
 
-Первый gateway-backed tool: `query_siem_readonly` (SOC persona). Каждый invoke пишет audit record → `audit.tool.invocations` (Kafka) или in-memory (dev).
+Первый gateway-backed tool: `query_siem_readonly` (SOC persona).  
+`SIEM_ADAPTER=mock` — canned JSON (dev). `SIEM_ADAPTER=http` + `SIEM_BASE_URL` — `GET {base}/search?q=...`.  
+Каждый invoke пишет audit record → `audit.tool.invocations` (Kafka) или in-memory (dev).
 
 ```bash
 curl -X POST http://localhost:8090/invoke \
@@ -157,8 +186,11 @@ curl -X POST http://localhost:8080/events \
   -H 'Content-Type: application/json' \
   -d '{"event_type":"siem.alert","payload":{"alert":"test"}}'
 
-# Manual investigation (all workers)
+# Manual investigation (LLM planner → sequential worker jobs)
 uv run cys-agi session -g "Analyze workflow risks"
+
+# DB migrations
+uv run cys-agi migrate
 
 # Single worker debug
 uv run cys-agi agent soc
@@ -174,7 +206,8 @@ uv run cys-agi coordinator
 ### Secure RAG
 
 ```bash
-USE_QDRANT=true   # optional; in-memory fuzzy store when false
+USE_QDRANT=true          # optional; in-memory fuzzy store when false
+USE_REAL_EMBEDDINGS=true # litellm embeddings (default: 8-dim hash stub)
 # Ingest via rag.ingest.staging consumer or MemoryVectorStore in tests
 # SOC tool: rag_query via tool gateway
 ```
@@ -189,7 +222,8 @@ uv run uvicorn interfaces.gateways.tool.server:create_app --factory --port 8090
 # Grafana dashboard: deploy/grafana/dashboards/cys-agi.json
 ```
 
-CI: `.github/workflows/adversarial-gate.yml` (abuse-case matrix), `agent-policy-gate.yml` (agent.yaml policy drift).
+CI: `.github/workflows/adversarial-gate.yml` (abuse-case matrix), `agent-policy-gate.yml` (agent.yaml policy drift).  
+Opt-in live Postgres: `.github/workflows/integration-postgres.yml` (`workflow_dispatch`).
 
 ## Тестирование
 
@@ -248,12 +282,22 @@ routing:
 ## Структура event-driven кода
 
 ```
-interfaces/ingress/router.py       # EventIngress
-interfaces/worker/orchestrator.py # WorkerOrchestrator
-interfaces/control_plane/                # CriticService, CoordinatorService, StatusStore
-cys_core/domain/events/ # SecurityEvent, EventRouter
-cys_core/infrastructure/# sandbox, queue, bus_transport
+interfaces/ingress/router.py              # EventIngress (sync)
+interfaces/ingress/router_consumer.py     # Kafka router (shared DispatchEvent)
+cys_core/application/use_cases/dispatch_event.py  # routing + planner fork
+interfaces/worker/orchestrator.py         # WorkerOrchestrator (sequential enqueue, dependency gate)
+interfaces/control_plane/                 # CriticService, CoordinatorService, JobStore
+cys_core/domain/events/                   # SecurityEvent, EventRouter
+cys_core/domain/memory/                   # episodic memory, investigation state
+cys_core/infrastructure/job_store/        # Postgres/InMemory HITL durable state
+cys_core/infrastructure/memory/         # episodic + investigation stores
+cys_core/infrastructure/migrations/     # SQL migration runner
 ```
+
+### Multi-pod bus (Redis)
+
+Без `USE_KAFKA=true` worker публикует findings в Redis pub/sub. Critic daemon вызывает `RedisBusTransport.start_subscriber_loop(["critic"])`.  
+Для production multi-pod рекомендуется `USE_KAFKA=true` (critic/coordinator читают `bus.findings`).
 
 ## Langfuse (опционально)
 

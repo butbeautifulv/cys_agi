@@ -23,9 +23,21 @@ class K8sSandboxConnector:
     ) -> None:
         self._settings = settings or get_settings()
         self.namespace = namespace or self._settings.k8s_namespace
-        self._batch_api = batch_api
+        self._batch_api = batch_api if batch_api is not None else self._load_batch_api()
         self._fallback = fallback or LocalSandboxConnector()
         self._job_names: dict[str, str] = {}
+
+    def _load_batch_api(self) -> Any:
+        try:
+            from kubernetes import client, config
+
+            try:
+                config.load_incluster_config()
+            except config.ConfigException:
+                config.load_kube_config()
+            return client.BatchV1Api()
+        except Exception:
+            return None
 
     def _job_name(self, run_id: str, persona: str) -> str:
         raw = f"worker-{persona}-{run_id}".lower().replace("_", "-")

@@ -31,7 +31,16 @@ async def test_runtime_create_run_invoke_and_deep_agent_tool(monkeypatch):
     )
     registry = SimpleNamespace(get=lambda name: defn, names=lambda: ["alpha"])
     model_connector = SimpleNamespace(create_model=lambda: "model", callbacks=lambda: [])
-    runtime = runtime_agent.AgentRuntime(registry, model_connector=model_connector)
+    async def async_persistence():
+        return SimpleNamespace(checkpointer="async-cp", store="async-store")
+
+    runtime = runtime_agent.AgentRuntime(
+        registry,
+        model_connector=model_connector,
+        sync_persistence_provider=lambda: SimpleNamespace(checkpointer="cp", store="store"),
+        async_persistence_provider=async_persistence,
+        memory_reader=None,
+    )
 
     captured = {}
 
@@ -39,20 +48,13 @@ async def test_runtime_create_run_invoke_and_deep_agent_tool(monkeypatch):
         captured.update(kwargs)
         return SimpleNamespace(created=True)
 
-    class FakePersistenceConnector:
-        def open(self, *, force_memory=None):
-            return SimpleNamespace(checkpointer="cp", store="store")
-
-        async def open_async(self, *, force_memory=None):
-            return SimpleNamespace(checkpointer="async-cp", store="async-store")
-
     monkeypatch.setattr(runtime_agent, "create_agent", fake_create_agent)
-    monkeypatch.setattr(runtime_agent, "get_persistence_connector", lambda: FakePersistenceConnector())
     created = runtime.create(defn, session_id="sid", extra_tools=["extra-tool"])
     assert created.created is True
     assert captured["name"] == "alpha"
     assert captured["model"] == "model"
     assert captured["checkpointer"] == "cp"
+    assert captured["store"] == "store"
     assert captured["tools"][-1] == "extra-tool"
     assert len(captured["middleware"]) == 4
 
@@ -61,7 +63,7 @@ async def test_runtime_create_run_invoke_and_deep_agent_tool(monkeypatch):
     assert captured["checkpointer"] == "async-cp"
     assert captured["tools"][-1] == "async-extra"
 
-    monkeypatch.setattr(runtime, "create", lambda loaded_defn, session_id: SimpleNamespace(agent=True))
+    monkeypatch.setattr(runtime, "create", lambda loaded_defn, session_id, **_kwargs: SimpleNamespace(agent=True))
     monkeypatch.setattr(runtime, "_invoke", lambda agent, text, session_id, schema: {"sid": session_id, "text": text})
     assert runtime.run("alpha", "input", session_id="custom") == {"sid": "custom", "text": "input"}
     assert runtime.run("alpha", "input")["sid"] == "agent-alpha"

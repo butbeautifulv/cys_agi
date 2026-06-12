@@ -2,14 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 
-def query_siem_readonly_search(
-    *,
-    query: str,
-    time_range: str = "24h",
-    limit: int = 50,
-) -> dict[str, Any]:
-    """Mock read-only SIEM search — production replaces with Splunk/Elastic API."""
+from bootstrap.settings import get_settings
+
+
+def _mock_search(*, query: str, time_range: str, limit: int) -> dict[str, Any]:
     capped = max(1, min(limit, 100))
     return {
         "query": query,
@@ -17,6 +15,7 @@ def query_siem_readonly_search(
         "limit": capped,
         "result_count": min(2, capped),
         "readonly": True,
+        "adapter": "mock",
         "results": [
             {
                 "timestamp": "2026-06-11T10:00:00Z",
@@ -34,3 +33,41 @@ def query_siem_readonly_search(
             },
         ],
     }
+
+
+def _http_search(*, query: str, time_range: str, limit: int, base_url: str) -> dict[str, Any]:
+    capped = max(1, min(limit, 100))
+    url = f"{base_url.rstrip('/')}/search"
+    response = httpx.get(
+        url,
+        params={"q": query, "time_range": time_range, "limit": capped, "readonly": "true"},
+        timeout=10.0,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if isinstance(data, dict):
+        data.setdefault("adapter", "http")
+        data.setdefault("readonly", True)
+        return data
+    return {
+        "query": query,
+        "time_range": time_range,
+        "limit": capped,
+        "readonly": True,
+        "adapter": "http",
+        "results": data,
+    }
+
+
+def query_siem_readonly_search(
+    *,
+    query: str,
+    time_range: str = "24h",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Read-only SIEM search — mock by default, HTTP when SIEM_ADAPTER=http."""
+    settings = get_settings()
+    capped = max(1, min(limit, 100))
+    if settings.siem_adapter.lower() == "http" and settings.siem_base_url:
+        return _http_search(query=query, time_range=time_range, limit=capped, base_url=settings.siem_base_url)
+    return _mock_search(query=query, time_range=time_range, limit=capped)

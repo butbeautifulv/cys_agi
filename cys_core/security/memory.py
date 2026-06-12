@@ -1,41 +1,33 @@
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime, timedelta, timezone
 
-from cys_core.domain.security.factory import get_input_sanitizer
-from cys_core.domain.security.redaction import RedactionService
-from cys_core.domain.security.sanitizer import InjectionVerdict
+from cys_core.domain.memory.validator import MemoryEntryValidator
 
 
 class SecureAgentMemory:
     """Validated, isolated agent memory (cheat sheet §3)."""
 
     MAX_MEMORY_ITEMS = 100
-    MAX_ITEM_LENGTH = 5000
+    MAX_ITEM_LENGTH = MemoryEntryValidator.MAX_ITEM_LENGTH
     MEMORY_TTL_HOURS = 24
 
     def __init__(self, user_id: str, signing_key: bytes | None = None) -> None:
         self.user_id = user_id
         self.signing_key = signing_key or b"cys-agi-default-key"
         self.memories: list[dict] = []
-        self._sanitizer = get_input_sanitizer()
-        self._redaction = RedactionService()
+        self._validator = MemoryEntryValidator(namespace_key=user_id, signing_key=self.signing_key)
 
     def add(self, content: str, memory_type: str = "conversation") -> None:
-        if self._sanitizer.classify(content) is not InjectionVerdict.NONE:
+        validated = self._validator.validate(content)
+        if validated.rejected or not validated.content:
             return
-        if len(content) > self.MAX_ITEM_LENGTH:
-            content = content[: self.MAX_ITEM_LENGTH]
-        if self._redaction.contains_sensitive_data(content):
-            content = self._redaction.redact_pii(content)
-        content = self._sanitizer.filter_patterns(content)
         entry = {
-            "content": content,
+            "content": validated.content,
             "type": memory_type,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "user_id": self.user_id,
-            "checksum": self._compute_checksum(content),
+            "checksum": validated.checksum,
         }
         self.memories.append(entry)
         self._enforce_limits()
@@ -45,16 +37,12 @@ class SecureAgentMemory:
         valid: list[str] = []
         for mem in self.memories:
             mem_time = datetime.fromisoformat(mem["timestamp"])
-            if mem_time > cutoff and self._verify_checksum(mem):
+            if mem_time > cutoff and self._validator.verify_checksum(mem["content"], mem.get("checksum", "")):
                 valid.append(mem["content"])
         return valid
 
     def _compute_checksum(self, content: str) -> str:
-        return hashlib.sha256((content + self.user_id).encode() + self.signing_key).hexdigest()[:16]
-
-    def _verify_checksum(self, entry: dict) -> bool:
-        expected = self._compute_checksum(entry["content"])
-        return entry.get("checksum") == expected
+        return self._validator.checksum(content)
 
     def _enforce_limits(self) -> None:
         if len(self.memories) > self.MAX_MEMORY_ITEMS:

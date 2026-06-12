@@ -1,0 +1,38 @@
+name: integration-postgres
+
+on:
+  workflow_dispatch:
+
+jobs:
+  postgres-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: cys_agi
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      STAGE: dev
+      USE_MEMORY_FALLBACK: "false"
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: cys_agi
+      JOB_STORE_CONNECTOR: postgres
+      PERSISTENCE_CONNECTOR: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - run: uv run cys-agi migrate
+      - run: uv run pytest tests/infrastructure/test_postgres_job_store.py tests/infrastructure/test_migrations_runner.py -q

@@ -16,7 +16,14 @@ services:
     environment:
       STAGE: prod
       PERSISTENCE_CONNECTOR: postgres
+      JOB_STORE_CONNECTOR: postgres
       USE_MEMORY_FALLBACK: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_DB: cys_agi
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     networks:
       - agent_internal
     depends_on:
