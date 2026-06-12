@@ -14,6 +14,7 @@ class AgentConfig(BaseModel):
     role: Literal["worker", "control", "specialist", "critic", "coordinator"]
     output_schema: str | None = None
     tools: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
     hitl_tools: dict[str, bool] = Field(default_factory=dict)
     trust_level: str = "internal"
     bus_recipients: list[str] = Field(default_factory=list)
@@ -32,6 +33,7 @@ class AgentDefinition(BaseModel):
     system_prompt_digest: str = ""
     schema_name: str | None = None
     tools: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
     hitl_tools: dict[str, bool] = Field(default_factory=dict)
     trust_level: str = "internal"
     bus_recipients: list[str] = Field(default_factory=list)

@@ -21,9 +21,14 @@ class AgentTrustLevel(int, Enum):
     SYSTEM = 3
 
 
+ESCALATION_ONLY_PATHS: set[tuple[str, str]] = {
+    ("soc", "redteam"),
+    ("network", "redteam"),
+}
+
 TRUST_MESSAGE_TYPES: dict[AgentTrustLevel, set[str]] = {
     AgentTrustLevel.UNTRUSTED: {"finding", "query"},
-    AgentTrustLevel.INTERNAL: {"finding", "query", "correlation"},
+    AgentTrustLevel.INTERNAL: {"finding", "query", "correlation", "escalation"},
     AgentTrustLevel.PRIVILEGED: {"finding", "query", "correlation", "escalation"},
     AgentTrustLevel.SYSTEM: {"finding", "query", "correlation", "escalation", "control"},
 }
@@ -102,6 +107,16 @@ class SecureAgentBus:
                 {"sender": sender_id, "recipient": recipient_id},
             )
             raise SecurityViolation("Sender not authorized to message recipient")
+
+        if (sender_id, recipient_id) in ESCALATION_ONLY_PATHS:
+            if message_type != "escalation" or not payload.get("critic_approved"):
+                self._log_security_event(
+                    "blocked_privileged_escalation_path",
+                    {"sender": sender_id, "recipient": recipient_id, "message_type": message_type},
+                )
+                raise SecurityViolation(
+                    f"Direct path {sender_id}→{recipient_id} requires critic-approved escalation"
+                )
 
         if message_type not in sender["allowed_message_types"]:
             raise SecurityViolation(f"Message type '{message_type}' not allowed")

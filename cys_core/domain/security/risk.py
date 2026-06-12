@@ -13,11 +13,17 @@ class RiskLevel(str, Enum):
         order = [RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL]
         return order.index(self) <= order.index(other)
 
+    def __ge__(self, other: "RiskLevel") -> bool:
+        order = [RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL]
+        return order.index(self) >= order.index(other)
+
 
 ACTION_RISK_MAPPING: dict[str, RiskLevel] = {
     "parse_netflow": RiskLevel.LOW,
     "enrich_ioc": RiskLevel.LOW,
     "correlate_dns": RiskLevel.LOW,
+    "query_siem_readonly": RiskLevel.LOW,
+    "rag_query": RiskLevel.LOW,
     "dedup_alerts": RiskLevel.LOW,
     "build_timeline": RiskLevel.LOW,
     "correlate_findings": RiskLevel.LOW,

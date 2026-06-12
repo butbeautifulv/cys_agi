@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from control.job_store import get_job_store
 from control.status_store import get_status_store
+from cys_core.domain.workers.models import JobResumeRequest
 from ingress.router import EventIngress, get_event_ingress
+from cys_core.observability.http import mount_metrics
+from cys_core.observability.metrics import metrics, seed_agent_trust_gauges
+from workers.hitl_resume import HitlResumeError, resume_worker_job
 
 
 class EventIn(BaseModel):
@@ -21,8 +26,11 @@ class EventIn(BaseModel):
 def create_app(ingress: EventIngress | None = None) -> FastAPI:
     """FastAPI app for event ingest and user status."""
     app = FastAPI(title="cys-agi event platform", version="0.2.0")
+    mount_metrics(app)
+    seed_agent_trust_gauges()
     event_ingress = ingress or get_event_ingress()
     store = get_status_store()
+    job_store = get_job_store()
 
     @app.post("/events")
     async def post_event(event_in: EventIn) -> dict[str, Any]:
@@ -49,6 +57,32 @@ def create_app(ingress: EventIngress | None = None) -> FastAPI:
     @app.get("/status")
     async def get_status() -> dict[str, Any]:
         return store.snapshot()
+
+    @app.get("/jobs/{job_id}")
+    async def get_job(job_id: str) -> dict[str, Any]:
+        record = job_store.get(job_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return {
+            "job_id": record.job_id,
+            "persona": record.persona,
+            "status": record.status.value,
+            "session_id": record.session_id,
+            "pending_hitl": record.pending_hitl.model_dump() if record.pending_hitl else None,
+        }
+
+    @app.get("/approvals/pending")
+    async def list_pending_approvals() -> dict[str, Any]:
+        pending = job_store.list_pending_approvals()
+        metrics.refresh_hitl_pending(len(pending))
+        return {"count": len(pending), "approvals": [item.model_dump() for item in pending]}
+
+    @app.post("/jobs/{job_id}/resume")
+    async def resume_job(job_id: str, body: JobResumeRequest) -> dict[str, Any]:
+        try:
+            return await resume_worker_job(job_id, body)
+        except HitlResumeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/workers/process-one")
     async def process_one_worker() -> dict[str, Any]:

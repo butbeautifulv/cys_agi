@@ -15,6 +15,15 @@ def test_require_sandbox_denies_host():
 
 @pytest.mark.unit
 def test_mcp_tool_invoke_in_sandbox():
-    reg = McpToolRegistry()
+    reg = McpToolRegistry(use_gateway=False)
     result = reg.invoke("dedup_alerts", "sandbox-1", {"alerts_text": "alert"})
-    assert "deduplicated_count" in result
+    assert result["success"] is True
+    assert "deduplicated_count" in result["data"]
+
+
+@pytest.mark.unit
+def test_mcp_tool_resolve_returns_structured_tools():
+    reg = McpToolRegistry(use_gateway=False)
+    tools = reg.resolve(["dedup_alerts"], "sandbox-1", persona="soc")
+    assert len(tools) == 1
+    assert tools[0].name == "dedup_alerts"

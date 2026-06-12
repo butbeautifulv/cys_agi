@@ -30,7 +30,9 @@ def test_main_cli_commands_and_entrypoint(monkeypatch, capsys):
         "workers.orchestrator.WorkerOrchestrator.process_next",
         AsyncMock(return_value=SimpleNamespace(model_dump=lambda: {"success": True})),
     )
-    assert main.cmd_worker(SimpleNamespace(once=True, max_jobs=1)) == 0
+    assert main.cmd_worker(
+        SimpleNamespace(once=True, max_jobs=1, daemon=False, persona="", idle_timeout=30.0)
+    ) == 0
     assert json.loads(capsys.readouterr().out)["result"]["success"] is True
 
     assert main.cmd_status(SimpleNamespace()) == 0
@@ -61,8 +63,13 @@ def test_main_cli_commands_and_entrypoint(monkeypatch, capsys):
     assert main.cmd_info(SimpleNamespace()) == 0
     assert json.loads(capsys.readouterr().out)["mode"] == "event-driven"
 
+    monkeypatch.setattr("ingress.router_consumer.run_router_consumer", lambda idle_timeout=0.0: 2)
+    assert main.cmd_router(SimpleNamespace(idle_timeout=0.0)) == 0
+    assert json.loads(capsys.readouterr().out)["processed"] == 2
+
     parser = main.build_parser()
     assert parser.parse_args(["ingest", "-t", "siem.alert", "-p", "{}"]).type == "siem.alert"
+    assert parser.parse_args(["router"]).idle_timeout == 0.0
 
 
 @pytest.mark.unit

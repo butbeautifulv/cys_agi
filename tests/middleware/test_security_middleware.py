@@ -18,13 +18,16 @@ def test_security_middleware_paths_and_hitl_builder(monkeypatch):
     middleware = security_middleware.SecurityMiddleware("agent-a", "session-a")
     middleware.rate_limiter = SimpleNamespace(check=MagicMock())
     middleware.monitor = SimpleNamespace(log_security_event=MagicMock(), log_tool_call=MagicMock())
-    monkeypatch.setattr(security_middleware.settings, "stage", "test")
+    monkeypatch.setattr(security_middleware.settings, "stage", "dev")
 
     class HighRisk:
         value = "high"
 
         def __gt__(self, _other):
             return True
+
+        def __le__(self, _other):
+            return False
 
     monkeypatch.setattr(security_middleware, "classify_tool_risk", lambda _name: HighRisk())
     gated = middleware.wrap_tool_call(request("danger"), lambda req: ToolMessage(content="ok", tool_call_id="x"))
@@ -37,7 +40,9 @@ def test_security_middleware_paths_and_hitl_builder(monkeypatch):
     middleware.monitor.log_security_event.assert_called()
 
     middleware.rate_limiter.check.side_effect = None
-    monkeypatch.setattr(security_middleware, "classify_tool_risk", lambda _name: security_middleware.RiskLevel.LOW)
+    from cys_core.domain.security.risk import RiskLevel
+
+    monkeypatch.setattr(security_middleware, "classify_tool_risk", lambda _name: RiskLevel.LOW)
     handled = middleware.wrap_tool_call(
         request("parse_netflow"),
         lambda req: ToolMessage(content="ok", tool_call_id=req.tool_call["id"]),
@@ -51,6 +56,37 @@ def test_security_middleware_paths_and_hitl_builder(monkeypatch):
     from cys_core.domain.agents.policies import build_interrupt_on
 
     assert "run_active_scan" in build_interrupt_on({"run_active_scan": True, "read_repo_metadata": False})
+
+
+@pytest.mark.unit
+def test_security_middleware_interrupts_in_prod(monkeypatch):
+    import cys_core.middleware.security_middleware as security_middleware
+
+    middleware = security_middleware.SecurityMiddleware(
+        "redteam",
+        "worker:redteam:job-1",
+    )
+    middleware.rate_limiter = SimpleNamespace(check=MagicMock())
+    middleware.monitor = SimpleNamespace(log_security_event=MagicMock(), log_tool_call=MagicMock())
+    monkeypatch.setattr(security_middleware.settings, "stage", "prod")
+    monkeypatch.setattr(security_middleware, "register_hitl_pause", lambda preview: None)
+    monkeypatch.setattr(security_middleware, "interrupt", lambda preview: {"decision": "approve"})
+
+    class HighRisk:
+        value = "high"
+
+        def __gt__(self, _other):
+            return True
+
+        def __le__(self, _other):
+            return False
+
+    monkeypatch.setattr(security_middleware, "classify_tool_risk", lambda _name: HighRisk())
+    result = middleware.wrap_tool_call(
+        request("run_active_scan", args={"target": "lab"}),
+        lambda req: ToolMessage(content="ok", tool_call_id=req.tool_call["id"]),
+    )
+    assert result.content == "ok"
 
 
 @pytest.mark.unit
@@ -71,7 +107,9 @@ async def test_security_middleware_async_paths(monkeypatch):
     rate_limiter = FakeRateLimiter()
     middleware.rate_limiter = rate_limiter
     middleware.monitor = SimpleNamespace(log_security_event=MagicMock(), log_tool_call=MagicMock())
-    monkeypatch.setattr(security_middleware.settings, "stage", "test")
+    monkeypatch.setattr(security_middleware.settings, "stage", "prod")
+    monkeypatch.setattr(security_middleware, "register_hitl_pause", lambda preview: None)
+    monkeypatch.setattr(security_middleware, "interrupt", lambda preview: {"decision": "reject"})
 
     class HighRisk:
         value = "high"
@@ -79,9 +117,13 @@ async def test_security_middleware_async_paths(monkeypatch):
         def __gt__(self, _other):
             return True
 
+        def __le__(self, _other):
+            return False
+
     monkeypatch.setattr(security_middleware, "classify_tool_risk", lambda _name: HighRisk())
     gated = await middleware.awrap_tool_call(request("danger"), lambda req: ToolMessage(content="ok", tool_call_id="x"))
     assert gated.status == "error"
+    assert "rejected" in gated.content
 
     rate_limiter.error = RuntimeError("too many")
     limited = await middleware.awrap_tool_call(request("parse_netflow"), lambda req: ToolMessage(content="ok", tool_call_id="x"))
@@ -89,7 +131,9 @@ async def test_security_middleware_async_paths(monkeypatch):
     middleware.monitor.log_security_event.assert_called()
 
     rate_limiter.error = None
-    monkeypatch.setattr(security_middleware, "classify_tool_risk", lambda _name: security_middleware.RiskLevel.LOW)
+    from cys_core.domain.security.risk import RiskLevel
+
+    monkeypatch.setattr(security_middleware, "classify_tool_risk", lambda _name: RiskLevel.LOW)
 
     async def async_handler(req):
         return ToolMessage(content="async-ok", tool_call_id=req.tool_call["id"])

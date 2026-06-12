@@ -67,7 +67,7 @@ async def test_runtime_create_run_invoke_and_deep_agent_tool(monkeypatch):
     assert runtime.run("alpha", "input", session_id="custom") == {"sid": "custom", "text": "input"}
     assert runtime.run("alpha", "input")["sid"] == "agent-alpha"
 
-    async def fake_runtime_ainvoke(agent, text, session_id, schema):
+    async def fake_runtime_ainvoke(agent, text, session_id, schema, recursion_limit=None, **_kwargs):
         return {"sid": session_id, "text": text}
 
     monkeypatch.setattr(runtime, "_ainvoke", fake_runtime_ainvoke)

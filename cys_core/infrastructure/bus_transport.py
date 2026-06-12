@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
-from functools import lru_cache
 from typing import Any
 
 from config import settings
@@ -86,6 +85,24 @@ class RedisBusTransport:
         await self._fallback.publish(channel, message)
 
 
-@lru_cache
-def get_bus_transport() -> RedisBusTransport:
-    return RedisBusTransport()
+_bus_transport: RedisBusTransport | InMemoryBusTransport | None = None
+
+
+def get_bus_transport() -> RedisBusTransport | InMemoryBusTransport:
+    """Return bus transport connector; Kafka when USE_KAFKA=true."""
+    global _bus_transport
+    if _bus_transport is not None:
+        return _bus_transport
+    if settings.use_kafka:
+        from cys_core.infrastructure.kafka_bus import KafkaBusTransport
+
+        _bus_transport = KafkaBusTransport()
+    else:
+        _bus_transport = RedisBusTransport()
+    return _bus_transport
+
+
+def reset_bus_transport_cache() -> None:
+    """Clear cached bus transport (tests)."""
+    global _bus_transport
+    _bus_transport = None

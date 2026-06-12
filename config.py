@@ -42,6 +42,44 @@ class Settings(BaseSettings):
     persistence_connector: str = Field(default="auto", validation_alias="PERSISTENCE_CONNECTOR")
     agents_root: str = Field(default="agents", validation_alias="AGENTS_ROOT")
 
+    kafka_bootstrap_servers: str = Field(
+        default="localhost:19092",
+        validation_alias="KAFKA_BOOTSTRAP_SERVERS",
+    )
+    use_kafka: bool = Field(default=False, validation_alias="USE_KAFKA")
+
+    tool_gateway_url: str = Field(
+        default="http://localhost:8090",
+        validation_alias="TOOL_GATEWAY_URL",
+    )
+    use_tool_gateway: bool = Field(default=False, validation_alias="USE_TOOL_GATEWAY")
+
+    job_cost_per_1k_tokens_usd: float = Field(
+        default=0.003,
+        validation_alias="JOB_COST_PER_1K_TOKENS_USD",
+    )
+    max_high_risk_tool_chain_depth: int = Field(
+        default=3,
+        validation_alias="MAX_HIGH_RISK_TOOL_CHAIN_DEPTH",
+    )
+    default_job_recursion_limit: int = Field(
+        default=25,
+        validation_alias="DEFAULT_JOB_RECURSION_LIMIT",
+    )
+
+    sandbox_connector: str = Field(default="local", validation_alias="SANDBOX_CONNECTOR")
+    k8s_namespace: str = Field(default="cys-agi", validation_alias="K8S_NAMESPACE")
+    k8s_worker_image: str = Field(
+        default="cys-agi-worker:latest",
+        validation_alias="K8S_WORKER_IMAGE",
+    )
+
+    qdrant_url: str = Field(default="http://localhost:6333", validation_alias="QDRANT_URL")
+    use_qdrant: bool = Field(default=False, validation_alias="USE_QDRANT")
+    rag_max_chunks: int = Field(default=5, validation_alias="RAG_MAX_CHUNKS")
+
+    status_store_connector: str = Field(default="auto", validation_alias="STATUS_STORE_CONNECTOR")
+
     @computed_field
     @property
     def llm_api_key(self) -> str:

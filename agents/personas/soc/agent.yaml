@@ -6,6 +6,10 @@ tools:
   - dedup_alerts
   - build_timeline
   - correlate_findings
+  - query_siem_readonly
+  - rag_query
+skills:
+  - network-beaconing
 hitl_tools: {}
 trust_level: internal
 bus_recipients:

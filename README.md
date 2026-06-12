@@ -12,7 +12,11 @@ Secure event-driven multi-agent cybersecurity platform with ephemeral sandbox wo
 - Control plane: critic (валидация) + coordinator (статус для пользователя) как async bus subscribers
 - DDD domain: `events`, `workers`, `findings`, `security` policies
 - Secure-by-design: MILS boundaries, A2A envelopes, mTLS metadata, scope/HITL middleware
-- FastAPI: `POST /events`, `GET /status`, `POST /workers/process-one`
+- Kafka/Redpanda event bus (`USE_KAFKA`), worker daemons, router/critic/coordinator consumers
+- MCP Tool Gateway (PEP), HITL L1/L2, DoW job budgets
+- Secure RAG (`rag_query`), Skill Gateway (`load_skill`), K8s sandbox connector
+- Prometheus metrics, Grafana dashboard, CI adversarial gates
+- FastAPI: `POST /events`, `GET /status`, HITL resume API, `GET /metrics`
 - Продуктовый слой `agents/` — personas, rules, routing plans, skills
 - 100% unit test coverage gate on `cys_core/domain`
 
@@ -21,7 +25,7 @@ Secure event-driven multi-agent cybersecurity platform with ephemeral sandbox wo
 ```bash
 uv sync
 
-docker compose up -d   # Postgres + Redis
+docker compose up -d   # Postgres + Redis + Redpanda + Qdrant
 
 cp .env.example .env   # LLM API key
 
@@ -52,7 +56,10 @@ USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/ -q
 |---------|----------|
 | `info` | Конфигурация, workers, control agents |
 | `ingest -t TYPE -p PAYLOAD` | Structured event → router → job queue |
-| `worker [--once] [--max-jobs N]` | Обработка jobs из очереди |
+| `worker [--once\|--daemon] [--persona soc]` | Обработка jobs из очереди |
+| `router` | Kafka router consumer (`security.events.raw`) |
+| `critic` | Critic bus consumer (`bus.findings`) |
+| `coordinator` | Coordinator bus consumer |
 | `status` | Snapshot control plane (findings, narratives) |
 | `serve [--port 8080]` | FastAPI event/status server |
 | `session -g "..."` | Manual investigation (`manual.investigation` event) |
@@ -89,11 +96,18 @@ cys-agi/
 ├── agents/                 # Продукт: personas, rules, plans, skills
 ├── ingress/                # EventIngress, FastAPI
 ├── workers/                # WorkerOrchestrator
-├── control/                # Critic + Coordinator subscribers, StatusStore
+├── control/                # Critic + Coordinator, daemons, StatusStore
+├── tool_gateway/           # MCP PEP (invoke, audit, HITL approval)
+├── skill_gateway/          # Secure skill load
+├── rag/                    # Ingest, store, retrieve
+├── connectors/             # SIEM poll → ingress
+├── deploy/k8s/             # Worker Job + NetworkPolicy
+├── deploy/grafana/         # SOC dashboards
 ├── cys_core/
-│   ├── domain/             # events, workers, findings, security
-│   ├── infrastructure/     # sandbox, queue, bus transport
-│   ├── registry/           # AgentRegistry, tools, mcp_tools
+│   ├── domain/             # events, workers, findings, security, rag, skills
+│   ├── infrastructure/     # sandbox, queue, bus, kafka
+│   ├── observability/      # Prometheus, tracing, Langfuse tags
+│   ├── registry/           # AgentRegistry, tools, mcp_tools, skills
 │   └── runtime/            # AgentRuntime
 ├── graph/                  # Deprecated batch workflow (compat shim)
 ├── coordinator/            # Deep Agents (optional sessions)
@@ -116,6 +130,11 @@ cys-agi/
 | `LLM_MODEL` | `anthropic/claude-sonnet-4` | LiteLLM model |
 | `STAGE` | `dev` | `dev` / `test` / `prod` |
 | `USE_MEMORY_FALLBACK` | `false` | In-memory queue/sandbox fallback |
+| `USE_KAFKA` | `false` | Kafka job queue + bus transport |
+| `USE_TOOL_GATEWAY` | `false` | MCP tools via `tool_gateway` PEP |
+| `USE_QDRANT` | `false` | Qdrant RAG store (else in-memory) |
+| `SANDBOX_CONNECTOR` | `local` | `local` \| `k8s` worker sandbox |
+| `STATUS_STORE_CONNECTOR` | `auto` | Control plane status (`postgres` in prod) |
 | `HITL_AUTO_APPROVE_THRESHOLD` | `low` | Risk gate для dangerous tools |
 | `TRUST_SCORE_THRESHOLD` | `0.5` | Critic trust threshold |
 | `PERSISTENCE_CONNECTOR` | `auto` | `auto`, `memory`, `postgres` |

@@ -1,0 +1,21 @@
+name: Agent Policy Gate
+
+on:
+  pull_request:
+
+jobs:
+  policy-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Block agent.yaml policy changes without adversarial test updates
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          python scripts/check_agent_policy_tests.py "$BASE" HEAD

@@ -20,7 +20,6 @@ async def test_coordinator_creation_and_session(monkeypatch):
         by_workers=lambda: [worker],
     )
     runtime = SimpleNamespace(to_deep_agent_subagent=lambda defn: {"name": defn.name})
-    product_context = SimpleNamespace(skills_path="agents/skills")
     captured = {}
 
     def fake_create_deep_agent(**kwargs):
@@ -45,13 +44,14 @@ async def test_coordinator_creation_and_session(monkeypatch):
     monkeypatch.setattr(deep_assessment, "get_agent_registry", lambda: registry)
     monkeypatch.setattr(deep_assessment, "get_runtime", lambda: runtime)
     monkeypatch.setattr(deep_assessment, "get_model_connector", lambda: SimpleNamespace(create_model=lambda: "model"))
-    monkeypatch.setattr(deep_assessment, "get_product_context", lambda: product_context)
     monkeypatch.setattr(deep_assessment, "create_deep_agent", fake_create_deep_agent)
 
     agent = deep_assessment.create_assessment_coordinator()
     assert agent.invoke({"messages": []}, config={})["messages"][0].content == "done"
     assert captured["interrupt_on"]["run_active_scan"] is True
-    assert captured["tools"] == []
+    assert len(captured["tools"]) == 1
+    assert captured["tools"][0].name == "load_skill"
+    assert "skills=" not in str(captured)
     assert captured["subagents"] == [{"name": "redteam"}]
 
     result = deep_assessment.run_session("goal", thread_id="thread-a", persistence=SimpleNamespace(checkpointer="cp", store="s"))

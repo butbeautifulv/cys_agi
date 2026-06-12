@@ -7,10 +7,16 @@ from typing import Any, Awaitable
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
-from langgraph.types import Command
+from langgraph.types import Command, interrupt
 
 from config import settings
-from cys_core.domain.security.risk import RiskLevel, classify_tool_risk, parse_threshold
+from cys_core.domain.security.risk import classify_tool_risk, parse_threshold
+from cys_core.middleware.hitl_pause import (
+    build_hitl_preview,
+    register_hitl_pause,
+    resume_decision_approved,
+)
+from cys_core.security.job_budget import JobBudgetExceeded, JobBudgetTracker
 from cys_core.security.monitor import AgentMonitor
 from cys_core.security.rate_limit import RedisRateLimiter
 
@@ -26,12 +32,49 @@ class SecurityMiddleware(AgentMiddleware):
         self.rate_limiter = RedisRateLimiter()
         self.auto_approve_threshold = parse_threshold(settings.hitl_auto_approve_threshold)
 
+    def _await_hitl_if_needed(self, request: ToolCallRequest) -> ToolMessage | None:
+        tool_name = request.tool_call.get("name", "")
+        risk = classify_tool_risk(tool_name)
+        if risk <= self.auto_approve_threshold:
+            return None
+        if settings.stage == "dev":
+            return ToolMessage(
+                content=f"Tool '{tool_name}' (risk={risk.value}) requires human approval.",
+                tool_call_id=request.tool_call.get("id", ""),
+                status="error",
+            )
+
+        preview = build_hitl_preview(
+            tool_name=tool_name,
+            tool_args=request.tool_call.get("args", {}),
+            risk_level=risk.value,
+            session_id=self.session_id,
+            persona=self.agent_id,
+        )
+        register_hitl_pause(preview)
+        decision = interrupt(preview)
+        if not resume_decision_approved(decision):
+            return ToolMessage(
+                content=f"Tool '{tool_name}' rejected by human reviewer.",
+                tool_call_id=request.tool_call.get("id", ""),
+                status="error",
+            )
+        return None
+
     def wrap_tool_call(
         self,
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]],
     ) -> ToolMessage | Command[Any]:
         tool_name = request.tool_call.get("name", "")
+        try:
+            JobBudgetTracker.check_tool_call(self.session_id)
+        except JobBudgetExceeded as exc:
+            return ToolMessage(
+                content=str(exc),
+                tool_call_id=request.tool_call.get("id", ""),
+                status="error",
+            )
         try:
             self.rate_limiter.check(f"{self.session_id}:{tool_name}")
         except Exception as exc:
@@ -44,16 +87,13 @@ class SecurityMiddleware(AgentMiddleware):
                 status="error",
             )
 
-        risk = classify_tool_risk(tool_name)
-        if risk > self.auto_approve_threshold and settings.stage != "dev":
-            return ToolMessage(
-                content=f"Tool '{tool_name}' (risk={risk.value}) requires human approval.",
-                tool_call_id=request.tool_call.get("id", ""),
-                status="error",
-            )
+        hitl_block = self._await_hitl_if_needed(request)
+        if hitl_block is not None:
+            return hitl_block
 
         try:
             result = handler(request)
+            JobBudgetTracker.record_tool_call(self.session_id)
             self.monitor.log_tool_call(
                 self.session_id,
                 tool_name,
@@ -61,6 +101,12 @@ class SecurityMiddleware(AgentMiddleware):
                 {"status": "ok"},
             )
             return result
+        except JobBudgetExceeded as exc:
+            return ToolMessage(
+                content=str(exc),
+                tool_call_id=request.tool_call.get("id", ""),
+                status="error",
+            )
         except Exception as exc:
             self.monitor.log_security_event(
                 self.session_id,
@@ -77,6 +123,14 @@ class SecurityMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command[Any]:
         tool_name = request.tool_call.get("name", "")
         try:
+            JobBudgetTracker.check_tool_call(self.session_id)
+        except JobBudgetExceeded as exc:
+            return ToolMessage(
+                content=str(exc),
+                tool_call_id=request.tool_call.get("id", ""),
+                status="error",
+            )
+        try:
             await self.rate_limiter.acheck(f"{self.session_id}:{tool_name}")
         except Exception as exc:
             self.monitor.log_security_event(
@@ -88,18 +142,15 @@ class SecurityMiddleware(AgentMiddleware):
                 status="error",
             )
 
-        risk = classify_tool_risk(tool_name)
-        if risk > self.auto_approve_threshold and settings.stage != "dev":
-            return ToolMessage(
-                content=f"Tool '{tool_name}' (risk={risk.value}) requires human approval.",
-                tool_call_id=request.tool_call.get("id", ""),
-                status="error",
-            )
+        hitl_block = self._await_hitl_if_needed(request)
+        if hitl_block is not None:
+            return hitl_block
 
         try:
             result = handler(request)
             if inspect.isawaitable(result):
                 result = await result
+            JobBudgetTracker.record_tool_call(self.session_id)
             self.monitor.log_tool_call(
                 self.session_id,
                 tool_name,
@@ -107,6 +158,12 @@ class SecurityMiddleware(AgentMiddleware):
                 {"status": "ok"},
             )
             return result
+        except JobBudgetExceeded as exc:
+            return ToolMessage(
+                content=str(exc),
+                tool_call_id=request.tool_call.get("id", ""),
+                status="error",
+            )
         except Exception as exc:
             self.monitor.log_security_event(
                 self.session_id,

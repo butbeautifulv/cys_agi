@@ -26,6 +26,9 @@ def test_all_tool_functions_and_registry_edges():
     assert json.loads(tools.parse_netflow.invoke({"netflow_text": "normal"}))["indicators"] == []
     assert json.loads(tools.enrich_ioc.invoke({"ioc": "1.2.3.4"}))["reputation"] == "suspicious"
     assert json.loads(tools.correlate_dns.invoke({"dns_events": "events"}))["confidence"] == 0.7
+    siem = json.loads(tools.query_siem_readonly.invoke({"query": "powershell", "time_range": "1h"}))
+    assert siem["readonly"] is True
+    assert siem["query"] == "powershell"
     assert json.loads(tools.dedup_alerts.invoke({"alerts_text": "alerts"}))["deduplicated_count"] == 1
     assert json.loads(tools.build_timeline.invoke({"events_text": "events"}))["timeline"]
     assert json.loads(tools.correlate_findings.invoke({"findings_json": "[]"}))["correlated"] is True

@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: worker-{{ persona }}-{{ run_id }}
+  namespace: cys-agi
+  labels:
+    app: cys-agi-worker
+    persona: "{{ persona }}"
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: cys-agi-worker
+        persona: "{{ persona }}"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: cys-agi-worker:latest
+          command: ["python", "-m", "workers.daemon"]
+          args: ["--persona", "{{ persona }}", "--max-jobs", "1"]
+          env:
+            - name: RUN_ID
+              value: "{{ run_id }}"
+            - name: USE_TOOL_GATEWAY
+              value: "true"
+            - name: TOOL_GATEWAY_URL
+              value: "http://tool-gateway:8090"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          emptyDir: {}

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from collections import deque
-from functools import lru_cache
 from typing import Any
 
 from config import settings
@@ -78,6 +77,23 @@ class RedisJobQueue:
         return self.dequeue(timeout)
 
 
-@lru_cache
-def get_job_queue() -> RedisJobQueue:
-    return RedisJobQueue()
+_queues: dict[str | None, RedisJobQueue | InMemoryJobQueue] = {}
+
+
+def get_job_queue(persona: str | None = None) -> RedisJobQueue | InMemoryJobQueue:
+    """Return job queue connector; Kafka when USE_KAFKA=true."""
+    if persona in _queues:
+        return _queues[persona]
+    if settings.use_kafka:
+        from cys_core.infrastructure.kafka_queue import KafkaJobQueue
+
+        queue: RedisJobQueue | InMemoryJobQueue = KafkaJobQueue(persona=persona)
+    else:
+        queue = RedisJobQueue()
+    _queues[persona] = queue
+    return queue
+
+
+def reset_job_queue_cache() -> None:
+    """Clear cached queue instances (tests)."""
+    _queues.clear()

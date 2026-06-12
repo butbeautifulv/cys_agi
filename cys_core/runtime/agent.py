@@ -5,12 +5,14 @@ from functools import lru_cache
 from typing import Any, TypeVar
 
 from langchain.agents import create_agent
+from langgraph.types import Command
 from langchain.agents.middleware.human_in_the_loop import HumanInTheLoopMiddleware
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import tool
 from pydantic import BaseModel
 
 from config import settings
+from cys_core.security.job_budget import JobBudgetExceeded, JobBudgetTracker
 from cys_core.application.ports import ModelConnector
 from cys_core.domain.agents.policies import build_interrupt_on
 from cys_core.domain.messaging import extract_message_content
@@ -18,6 +20,8 @@ from cys_core.domain.security.exceptions import SecurityViolation
 from cys_core.domain.security.factory import get_input_sanitizer, get_output_guardrails
 from cys_core.domain.security.prompt_context import REFUSAL_MESSAGE
 from cys_core.llm import get_model_connector
+from cys_core.observability.langfuse_tags import merge_langchain_config
+from cys_core.observability.metrics import metrics
 from cys_core.middleware.prompt_context_middleware import PromptContextMiddleware
 from cys_core.middleware.scope_middleware import ScopeMiddleware
 from cys_core.middleware.security_middleware import SecurityMiddleware
@@ -95,10 +99,14 @@ class AgentRuntime:
         session_id: str = "default",
         use_checkpointer: bool = True,
         extra_tools: list | None = None,
+        sandbox_tools: list | None = None,
     ):
-        tools = tool_registry.resolve(defn.tools)
-        if extra_tools:
-            tools = [*tools, *extra_tools]
+        if sandbox_tools is not None:
+            tools = sandbox_tools
+        else:
+            tools = tool_registry.resolve(defn.tools)
+            if extra_tools:
+                tools = [*tools, *extra_tools]
 
         checkpointer = None
         if use_checkpointer:
@@ -134,12 +142,41 @@ class AgentRuntime:
         user_input: str,
         *,
         session_id: str | None = None,
+        sandbox_tools: list | None = None,
+        recursion_limit: int | None = None,
+        job_id: str = "",
+        event_id: str = "",
+        correlation_id: str = "",
+        sandbox_id: str = "",
     ) -> dict[str, Any]:
         defn = self.registry.get(name)
         sid = session_id or f"agent-{name}"
-        agent = await self.acreate(defn, session_id=sid)
+        agent = await self.acreate(defn, session_id=sid, sandbox_tools=sandbox_tools)
         schema = schema_registry.get(defn.schema_name)
-        return await self._ainvoke(agent, user_input, session_id=sid, schema=schema)
+        return await self._ainvoke(
+            agent,
+            user_input,
+            session_id=sid,
+            schema=schema,
+            recursion_limit=recursion_limit,
+            persona=name,
+            job_id=job_id,
+            event_id=event_id,
+            correlation_id=correlation_id,
+            sandbox_id=sandbox_id,
+        )
+
+    async def aresume(self, name: str, session_id: str, resume: dict[str, Any]) -> dict[str, Any]:
+        defn = self.registry.get(name)
+        agent = await self.acreate(defn, session_id=session_id)
+        schema = schema_registry.get(defn.schema_name)
+        config = {
+            "configurable": {"thread_id": session_id},
+            "callbacks": self.model_connector.callbacks(),
+            "recursion_limit": 25,
+        }
+        result = await agent.ainvoke(Command(resume=resume), config=config)
+        return self._coerce_result(result, schema=schema)
 
     def _invoke(
         self,
@@ -171,21 +208,47 @@ class AgentRuntime:
         *,
         session_id: str,
         schema: type[BaseModel] | None,
+        recursion_limit: int | None = None,
+        persona: str = "",
+        job_id: str = "",
+        event_id: str = "",
+        correlation_id: str = "",
+        sandbox_id: str = "",
     ) -> dict[str, Any]:
         try:
             sanitized = self.sanitizer.sanitize(user_input, source="user")
         except SecurityViolation:
+            metrics.record_sanitizer_block("user", "hard")
             return {"error": REFUSAL_MESSAGE}
-        config = {
-            "configurable": {"thread_id": session_id},
-            "callbacks": self.model_connector.callbacks(),
-            "recursion_limit": 25,
-        }
-        result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": sanitized}]},
-            config=config,
+        JobBudgetTracker.record_tokens(session_id, JobBudgetTracker.estimate_tokens(sanitized))
+        config = merge_langchain_config(
+            {
+                "configurable": {"thread_id": session_id},
+                "callbacks": self.model_connector.callbacks(),
+                "recursion_limit": recursion_limit or settings.default_job_recursion_limit,
+            },
+            persona=persona or session_id,
+            job_id=job_id,
+            event_id=event_id,
+            correlation_id=correlation_id,
+            sandbox_id=sandbox_id,
         )
-        return self._coerce_result(result, schema=schema)
+        try:
+            result = await agent.ainvoke(
+                {"messages": [{"role": "user", "content": sanitized}]},
+                config=config,
+            )
+        except JobBudgetExceeded as exc:
+            return {"error": str(exc)}
+        coerced = self._coerce_result(result, schema=schema)
+        try:
+            JobBudgetTracker.record_tokens(
+                session_id,
+                JobBudgetTracker.estimate_tokens(json.dumps(coerced, ensure_ascii=False)),
+            )
+        except JobBudgetExceeded as exc:
+            return {"error": str(exc)}
+        return coerced
 
     def _coerce_result(
         self,

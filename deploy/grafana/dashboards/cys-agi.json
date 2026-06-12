@@ -1,0 +1,94 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Events ingested",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(cys_events_ingested_total[5m])) by (event_type)", "legendFormat": "{{event_type}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "title": "Worker job duration p95",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(cys_worker_job_duration_seconds_bucket[5m])) by (le, persona))",
+          "legendFormat": "{{persona}}"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "title": "Tool invocations",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(cys_tool_invocations_total[5m])) by (tool, result)", "legendFormat": "{{tool}} {{result}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "title": "Sanitizer blocks",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(cys_sanitizer_blocks_total[5m])) by (source, verdict)",
+          "legendFormat": "{{source}} {{verdict}}"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "id": 5,
+      "title": "HITL pending",
+      "type": "stat",
+      "targets": [{ "expr": "cys_hitl_pending_total" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "id": 6,
+      "title": "Approval bypass attempts",
+      "type": "stat",
+      "targets": [{ "expr": "sum(cys_approval_bypass_attempts_total)" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "id": 7,
+      "title": "RAG denials",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(cys_rag_retrievals_total{denied=\"true\"}[5m])) by (tenant)",
+          "legendFormat": "{{tenant}}"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["cys-agi", "soc", "security"],
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "cys-agi SOC Platform",
+  "uid": "cys-agi-main",
+  "version": 1
+}

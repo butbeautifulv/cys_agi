@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from functools import lru_cache
 
+from config import settings
 from cys_core.domain.workers.models import SandboxCredentials
 
 
@@ -36,6 +36,23 @@ class LocalSandboxConnector:
         return run_id in self._active
 
 
-@lru_cache
+_sandbox_connector: LocalSandboxConnector | None = None
+
+
 def get_sandbox_connector() -> LocalSandboxConnector:
-    return LocalSandboxConnector()
+    """Return sandbox connector; K8s when SANDBOX_CONNECTOR=k8s."""
+    global _sandbox_connector
+    if _sandbox_connector is not None:
+        return _sandbox_connector
+    if settings.sandbox_connector == "k8s":
+        from cys_core.infrastructure.k8s_sandbox import K8sSandboxConnector
+
+        _sandbox_connector = K8sSandboxConnector()
+    else:
+        _sandbox_connector = LocalSandboxConnector()
+    return _sandbox_connector
+
+
+def reset_sandbox_connector_cache() -> None:
+    global _sandbox_connector
+    _sandbox_connector = None

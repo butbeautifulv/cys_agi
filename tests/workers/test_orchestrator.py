@@ -27,7 +27,7 @@ async def test_orchestrator_run_job_publishes_finding(monkeypatch):
         all=lambda: [
             SimpleNamespace(name="soc", trust_level="internal", bus_recipients=["critic"], schema_name="SocFinding"),
         ],
-        get=lambda name: SimpleNamespace(schema_name="SocFinding"),
+        get=lambda name: SimpleNamespace(schema_name="SocFinding", tools=[], skills=[]),
     )
     runtime = SimpleNamespace(
         arun=AsyncMock(return_value={"incident_id": "i1", "priority": "high", "confidence": 0.8, "summary": "ok"}),

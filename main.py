@@ -37,10 +37,21 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def cmd_worker(args: argparse.Namespace) -> int:
+    if args.daemon:
+        from workers.daemon import run_worker_daemon
+
+        processed = run_worker_daemon(
+            args.persona,
+            max_jobs=args.max_jobs if args.max_jobs > 0 else None,
+            idle_timeout=args.idle_timeout,
+        )
+        print(json.dumps({"persona": args.persona, "processed": processed}, indent=2))
+        return 0
+
     from workers.orchestrator import WorkerOrchestrator
 
     async def _run() -> dict:
-        orch = WorkerOrchestrator()
+        orch = WorkerOrchestrator(persona=args.persona or None)
         if args.once:
             result = await orch.process_next()
             return {"result": result.model_dump() if result else None}
@@ -54,6 +65,30 @@ def cmd_worker(args: argparse.Namespace) -> int:
 
     out = asyncio.run(_run())
     print(json.dumps(out, indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_router(args: argparse.Namespace) -> int:
+    from ingress.router_consumer import run_router_consumer
+
+    processed = run_router_consumer(idle_timeout=args.idle_timeout)
+    print(json.dumps({"processed": processed}, indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_critic(args: argparse.Namespace) -> int:
+    from control.critic_daemon import run_critic_daemon
+
+    processed = run_critic_daemon(idle_timeout=args.idle_timeout)
+    print(json.dumps({"service": "critic", "processed": processed}, indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_coordinator(args: argparse.Namespace) -> int:
+    from control.coordinator_daemon import run_coordinator_daemon
+
+    processed = run_coordinator_daemon(idle_timeout=args.idle_timeout)
+    print(json.dumps({"service": "coordinator", "processed": processed}, indent=2, ensure_ascii=False))
     return 0
 
 
@@ -133,6 +168,8 @@ def cmd_info(_args: argparse.Namespace) -> int:
                 "postgres_url": settings.postgres_url,
                 "redis_url": settings.redis_url,
                 "use_memory_fallback": settings.use_memory_fallback,
+                "use_kafka": settings.use_kafka,
+                "kafka_bootstrap_servers": settings.kafka_bootstrap_servers,
                 "agents_root": settings.agents_root,
             },
             indent=2,
@@ -159,7 +196,24 @@ def build_parser() -> argparse.ArgumentParser:
     worker = sub.add_parser("worker", help="Process queued worker jobs")
     worker.add_argument("--once", action="store_true", help="Process single job")
     worker.add_argument("--max-jobs", type=int, default=1, help="Max jobs per invocation")
+    worker.add_argument("--persona", default="", help="Worker persona (required for daemon/Kafka)")
+    worker.add_argument("--daemon", action="store_true", help="Run as long-lived daemon")
+    worker.add_argument("--idle-timeout", type=float, default=30.0, help="Exit after N seconds idle (daemon)")
     worker.set_defaults(func=cmd_worker)
+
+    router = sub.add_parser("router", help="Run Kafka router consumer daemon")
+    router.add_argument("--idle-timeout", type=float, default=0.0, help="Exit after N seconds idle (0=run forever)")
+    router.set_defaults(func=cmd_router)
+
+    critic = sub.add_parser("critic", help="Run critic bus consumer daemon")
+    critic.add_argument("--idle-timeout", type=float, default=0.0, help="Exit after N seconds idle (0=run forever)")
+    critic.set_defaults(func=cmd_critic)
+
+    coordinator = sub.add_parser("coordinator", help="Run coordinator bus consumer daemon")
+    coordinator.add_argument(
+        "--idle-timeout", type=float, default=0.0, help="Exit after N seconds idle (0=run forever)"
+    )
+    coordinator.set_defaults(func=cmd_coordinator)
 
     status = sub.add_parser("status", help="Show control plane status snapshot")
     status.set_defaults(func=cmd_status)

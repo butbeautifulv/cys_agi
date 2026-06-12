@@ -76,6 +76,7 @@ class AgentRegistry:
                 system_prompt_digest=system_ctx.digest,
                 schema_name=config.output_schema,
                 tools=config.tools,
+                skills=config.skills,
                 hitl_tools=config.hitl_tools,
                 trust_level=config.trust_level,
                 bus_recipients=config.bus_recipients,

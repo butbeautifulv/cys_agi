@@ -12,14 +12,40 @@ cp .env.example .env
 |---------|------|-------------|
 | Postgres 16 | 5432 | `postgres` / `password`, DB `cys_agi` |
 | Redis 7 | 6379 | password `password` |
+| Redpanda (Kafka) | 19092 | no auth (dev single-node) |
+
+### Kafka / Redpanda (event bus)
+
+Redpanda поднимается вместе с `docker compose up -d`. Для локальной разработки с Kafka:
+
+```bash
+# .env
+USE_KAFKA=true
+KAFKA_BOOTSTRAP_SERVERS=localhost:19092
+
+# Проверка брокера
+docker compose exec redpanda rpk topic list
+docker compose exec redpanda rpk topic create security.events.raw worker.jobs.soc bus.findings
+```
+
+Топики (production naming):
+
+| Topic | Назначение |
+|-------|------------|
+| `security.events.raw` | Ingress → router consumer |
+| `worker.jobs.{persona}` | Router → worker daemon |
+| `bus.findings` | Worker findings → critic/coordinator |
+| `worker.jobs.dlq` | Poison jobs |
+
+Без `USE_KAFKA=true` очередь и bus остаются на Redis / in-memory fallback (совместимость с существующим flow).
 
 ## Режимы работы
 
 | STAGE | Persistence | Queue/Bus |
 |-------|-------------|-----------|
 | `test` | memory | in-memory fallback |
-| `dev` | Postgres (fallback memory) | Redis or memory |
-| `prod` | Postgres | Redis |
+| `dev` | Postgres (fallback memory) | Redis or memory; Kafka if `USE_KAFKA=true` |
+| `prod` | Postgres | Kafka (Redpanda) |
 
 Локально без Docker:
 
@@ -27,6 +53,93 @@ cp .env.example .env
 USE_MEMORY_FALLBACK=true STAGE=dev python main.py ingest -t siem.alert -p '{"alert":"test"}'
 USE_MEMORY_FALLBACK=true STAGE=dev python main.py worker --once
 ```
+
+## MCP Tool Gateway
+
+PEP для sandbox tool calls: `POST /invoke` → execute → sanitize → `RETRIEVED_TOOL_DATA` wrapper.
+
+```bash
+# .env
+USE_TOOL_GATEWAY=true
+TOOL_GATEWAY_URL=http://localhost:8090
+
+uv run uvicorn tool_gateway.server:create_app --factory --port 8090
+```
+
+Worker с `USE_TOOL_GATEWAY=true` резолвит tools через gateway (`sandbox_tools`), не напрямую из registry.
+
+### HITL L1 (high-risk tools)
+
+`SecurityMiddleware` в prod/test вызывает `interrupt()` вместо error → job `awaiting_approval`.
+
+```bash
+GET  /jobs/{id}              # status: running | awaiting_approval | ...
+GET  /approvals/pending      # очередь pending tool calls
+POST /jobs/{id}/resume       # {"decision":"approve|reject|edit","approval_id":"appr-..."}
+```
+
+Paused jobs → `worker.jobs.paused` (Kafka). Approvals → `audit.hitl.approvals`.
+
+### DoW (Denial of Wallet)
+
+Per-job budgets на `WorkerJob` (defaults по persona в `cys_core/domain/workers/budgets.py`):
+
+| Persona | max_cost_usd | max_tokens |
+|---------|--------------|------------|
+| soc | $2 | 50k |
+| redteam | $5 | 80k |
+
+- `SecurityMiddleware` + `AgentRuntime` — tool-call / token / cost caps
+- `tool_gateway/policy.py` — max 3 sequential high-risk tools (config: `MAX_HIGH_RISK_TOOL_CHAIN_DEPTH`)
+
+## Sandbox (K8s)
+
+```bash
+# .env
+SANDBOX_CONNECTOR=k8s
+K8S_NAMESPACE=cys-agi
+```
+
+Manifests: `deploy/k8s/worker-job-template.yaml`, `deploy/k8s/networkpolicy.yaml`.  
+Без K8s API client — fallback на local sandbox с префиксом `k8s-fallback-`.
+
+## Secure Skills
+
+- Metadata в `agents/manifest.yaml` + `agents/skills/*/SKILL.md`
+- Body только через `load_skill` → `skill_gateway/load.py` (hash + sanitize + delimiters)
+- Allowlist per persona: `skills:` в `agent.yaml`
+- Vetting внешних packs: [docs/SKILLS_VETTING.md](SKILLS_VETTING.md)
+
+Первый gateway-backed tool: `query_siem_readonly` (SOC persona). Каждый invoke пишет audit record → `audit.tool.invocations` (Kafka) или in-memory (dev).
+
+```bash
+curl -X POST http://localhost:8090/invoke \
+  -H 'Content-Type: application/json' \
+  -d '{"tool_name":"query_siem_readonly","args":{"query":"powershell"},"persona":"soc","sandbox_id":"sandbox-1"}'
+```
+
+## SIEM poll connector
+
+Лёгкий сервис без LLM: опрашивает SIEM HTTP API и шлёт нормализованные события в Ingress.
+
+```bash
+# SIEM mock/stub должен отдавать GET {siem_base_url}/alerts → {"results": [...]}
+python -c "
+import asyncio
+from connectors.siem_poll import SiemPollClient
+
+async def main():
+    async with SiemPollClient(
+        siem_base_url='http://localhost:9090',
+        ingress_url='http://localhost:8080',
+    ) as client:
+        print(await client.poll_once())
+
+asyncio.run(main())
+"
+```
+
+Payload санитизируется (`source=external`) **до** `POST /events`; hard injection → alert отбрасывается.
 
 ## CLI для отладки
 
@@ -50,7 +163,33 @@ python main.py session -g "Analyze workflow risks"
 # Single worker debug
 python main.py agent soc
 python main.py agent redteam -i "sample input"
+
+# Kafka production daemons (USE_KAFKA=true)
+python main.py router
+python main.py worker --daemon --persona soc
+python main.py critic
+python main.py coordinator
 ```
+
+### Secure RAG
+
+```bash
+USE_QDRANT=true   # optional; in-memory fuzzy store when false
+# Ingest via rag.ingest.staging consumer or MemoryVectorStore in tests
+# SOC tool: rag_query via tool gateway
+```
+
+### Observability
+
+```bash
+# Metrics on ingress + gateway
+curl localhost:8080/metrics
+uv run uvicorn tool_gateway.server:create_app --factory --port 8090
+
+# Grafana dashboard: deploy/grafana/dashboards/cys-agi.json
+```
+
+CI: `.github/workflows/adversarial-gate.yml` (abuse-case matrix), `agent-policy-gate.yml` (agent.yaml policy drift).
 
 ## Тестирование
 

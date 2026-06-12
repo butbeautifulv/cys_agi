@@ -4,13 +4,13 @@ import pytest
 
 from control.coordinator_service import CoordinatorService
 from control.critic_service import CriticService
-from control.status_store import StatusStore
+from control.status_store import MemoryStatusStore
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_critic_service_feedback():
-    store = StatusStore()
+    store = MemoryStatusStore()
     critic = CriticService()
     critic.store = store
     envelope = {
@@ -19,14 +19,15 @@ async def test_critic_service_feedback():
     }
     feedback = await critic.handle_message(envelope)
     assert feedback["trust_score"] == 0.3
-    assert "high_severity" in feedback["issues_detected"]
+    assert "low_trust_score" in feedback["issues_detected"]
+    assert feedback.get("requires_hitl") is True
     assert len(store.critic_feedback) == 1
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_coordinator_service_narrative():
-    store = StatusStore()
+    store = MemoryStatusStore()
     coord = CoordinatorService()
     coord.store = store
     await coord.handle_message({"sender": "soc", "payload": {"event_id": "e1"}})

@@ -76,6 +76,28 @@ def correlate_dns(dns_events: str) -> str:
 
 
 @tool
+def query_siem_readonly(query: str, time_range: str = "24h") -> str:
+    """Execute read-only SIEM search. Worker runs route via MCP Tool Gateway."""
+    from tool_gateway.adapters.siem import query_siem_readonly_search
+
+    return json.dumps(
+        query_siem_readonly_search(query=query, time_range=time_range),
+        ensure_ascii=False,
+    )
+
+
+@tool
+def rag_query(query: str, persona: str = "soc", tenant: str = "default") -> str:
+    """Retrieve ACL-filtered knowledge base chunks via MCP Tool Gateway."""
+    from tool_gateway.adapters.rag import rag_query_tool
+
+    return json.dumps(
+        rag_query_tool(query=query, persona=persona, tenant=tenant),
+        ensure_ascii=False,
+    )
+
+
+@tool
 def dedup_alerts(alerts_text: str) -> str:
     """Deduplicate and cluster SIEM alerts."""
     return json.dumps({"deduplicated_count": 1, "clusters": ["powershell_encoded"]}, ensure_ascii=False)
@@ -136,6 +158,8 @@ _ALL_TOOLS: list[BaseTool] = [
     parse_netflow,
     enrich_ioc,
     correlate_dns,
+    query_siem_readonly,
+    rag_query,
     dedup_alerts,
     build_timeline,
     correlate_findings,
