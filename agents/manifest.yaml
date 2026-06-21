@@ -29,6 +29,11 @@ plans:
     description: Manual investigation — all workers
 
 skills:
+  - ai-agent-security
   - ci-cd-threats
-  - network-beaconing
   - compliance-frameworks
+  - network-beaconing
+  - prompt-injection-defense
+  - rag-security
+  - secure-deployment
+  - skill-supply-chain
