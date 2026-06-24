@@ -10,8 +10,9 @@ permissions:
   security-events: write
   pull-requests: read
 
+env:
+  SECURITY_POLICY: config/security-gate-policy-adopt.yaml
+
 jobs:
-  smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "security-shift-left workflow valid"
+  secrets:
+    uses: ./.github/workflows/jobs/secret-scan.yml
