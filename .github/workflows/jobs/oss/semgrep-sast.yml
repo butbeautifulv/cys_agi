@@ -1,0 +1,29 @@
+name: OSS Semgrep SAST
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep scan
+        run: |
+          IMAGE="${OSS_SEMGREP_IMAGE:-returntocorp/semgrep:1.117.0}"
+          docker run --rm -v "$PWD:/src" -e HOME=/tmp "$IMAGE" \
+            semgrep scan --config p/ci --sarif -o /src/semgrep.sarif /src || true
+          sudo chown "$(id -u):$(id -g)" semgrep.sarif 2>/dev/null || true
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: sast
+          report: semgrep.sarif
+          category: sast
+          tool_name: semgrep
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}

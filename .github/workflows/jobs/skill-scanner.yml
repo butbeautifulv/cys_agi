@@ -1,0 +1,28 @@
+name: Skill Scanner
+
+on:
+  workflow_call:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Scan skills
+        run: |
+          if command -v skill-scanner >/dev/null 2>&1; then
+            skill-scanner scan .cursor/skills/ .agents/skills/ -o skill-scan.sarif || true
+          else
+            python scripts/ai-ml-scan.py skill_scan --report skill-scan.sarif
+          fi
+      - name: Gate check
+        if: always()
+        run: python scripts/gate-check.py --control skill_scan --report skill-scan.sarif
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: skill-scan
+          path: skill-scan.sarif

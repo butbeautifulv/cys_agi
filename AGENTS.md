@@ -124,6 +124,8 @@ Ingress → EventRouter → JobQueue → WorkerOrchestrator → Bus
 USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/domain/ -q --cov=cys_core/domain --cov-fail-under=100
 ```
 
+**CI gates** (all required on PR): `arch-gate`, `adversarial-gate`, `agent-policy-gate`, `security-shift-left` (Fabrica B1–B6). See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#ci).
+
 Структура:
 
 - `tests/domain/` — events, workers, security, findings

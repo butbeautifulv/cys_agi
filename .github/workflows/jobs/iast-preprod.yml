@@ -1,0 +1,20 @@
+name: IAST Preprod
+
+on:
+  workflow_call:
+    inputs:
+      preprod_url:
+        required: false
+        type: string
+        default: https://preprod.example.com
+      max_minutes:
+        required: false
+        type: string
+        default: "15"
+
+jobs:
+  iast:
+    uses: ./.github/workflows/jobs/oss/iast-preprod.yml
+    with:
+      preprod_url: ${{ inputs.preprod_url }}
+      max_minutes: ${{ inputs.max_minutes }}

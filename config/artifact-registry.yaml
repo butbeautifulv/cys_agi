@@ -1,0 +1,31 @@
+# Docker/OCI artifact registry backends — profile oss-full and shared build jobs
+# Update via PR; see docs/runbooks/nexus-docker-registry.md
+
+default_backend: gitlab
+
+backends:
+  gitlab:
+    host_var: CI_REGISTRY
+    user_var: CI_REGISTRY_USER
+    password_var: CI_REGISTRY_PASSWORD
+    image_prefix_var: CI_REGISTRY_IMAGE
+  nexus:
+    host_var: REGISTRY_HOST
+    user_var: REGISTRY_USER
+    password_var: REGISTRY_PASSWORD
+    repository_path_var: REGISTRY_REPOSITORY
+  harbor:
+    host_var: REGISTRY_HOST
+    user_var: REGISTRY_USER
+    password_var: REGISTRY_PASSWORD
+    repository_path_var: REGISTRY_REPOSITORY
+  artifactory:
+    host_var: REGISTRY_HOST
+    user_var: REGISTRY_USER
+    password_var: REGISTRY_PASSWORD
+    repository_path_var: REGISTRY_REPOSITORY
+  generic:
+    host_var: REGISTRY_HOST
+    user_var: REGISTRY_USER
+    password_var: REGISTRY_PASSWORD
+    repository_path_var: REGISTRY_REPOSITORY

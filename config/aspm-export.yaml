@@ -1,0 +1,59 @@
+# ASPM / ASOC findings export — platform-agnostic mapping
+# Backend: noop | defectdojo (future: jit, appsec_track)
+
+backend: defectdojo
+
+defaults:
+  enabled_env: DEFECTDOJO_URL
+  allow_failure: true
+
+defectdojo:
+  reimport: true
+  auto_create_context: true
+  minimum_severity: Info
+  close_old_findings: false
+  product_name: "${DEFECTDOJO_PRODUCT_NAME:-${CI_PROJECT_NAME:-app}}"
+  engagement_name: "${DEFECTDOJO_ENGAGEMENT:-CI/CD}"
+  commit_hash: "${CI_COMMIT_SHA:-}"
+  branch_tag: "${CI_COMMIT_REF_NAME:-}"
+  build_id: "${CI_PIPELINE_ID:-}"
+
+controls:
+  secrets:
+    scan_type: "Gitleaks Scan"
+    test_title: "secrets"
+  sast:
+    scan_type: "SARIF"
+    test_title: "sast-semgrep"
+  osa:
+    scan_type: "SARIF"
+    test_title: "osa-trivy-fs"
+  sca:
+    scan_type: "SARIF"
+    test_title: "sca-trivy-image"
+  iac:
+    scan_type: "Checkov Scan"
+    test_title: "iac-checkov"
+    report_glob: "reports/checkov-report.json"
+  dockerfile:
+    scan_type: "Hadolint Dockerfile check"
+    test_title: "dockerfile-hadolint"
+    report_glob: "hadolint-report.json"
+  linters:
+    scan_type: "SARIF"
+    test_title: "linters"
+  dast:
+    scan_type: "ZAP Scan"
+    test_title: "dast-zap"
+  iast:
+    scan_type: "ZAP Scan"
+    test_title: "iast-zap-full"
+  fuzzing:
+    scan_type: "JUnit Test"
+    test_title: "api-fuzz-schemathesis"
+  binary_fuzz:
+    scan_type: "JUnit Test"
+    test_title: "binary-fuzz"
+  sbom:
+    scan_type: "CycloneDX Scan"
+    test_title: "sbom-syft"

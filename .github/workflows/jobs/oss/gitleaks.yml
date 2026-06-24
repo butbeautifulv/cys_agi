@@ -1,0 +1,31 @@
+name: OSS Gitleaks
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan
+        run: |
+          IMAGE="${OSS_GITLEAKS_IMAGE:-ghcr.io/gitleaks/gitleaks:v8.22.1}"
+          docker run --rm -v "$PWD:/repo" -w /repo "$IMAGE" \
+            detect --source . --report-format sarif --report-path gitleaks.sarif --no-git || true
+          sudo chown "$(id -u):$(id -g)" gitleaks.sarif 2>/dev/null || true
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: secrets
+          report: gitleaks.sarif
+          category: secrets
+          tool_name: gitleaks
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}

@@ -1,0 +1,34 @@
+name: OSS Security Linters
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  linter-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Ruff
+        run: |
+          if [ "${ENABLE_REAL_LINTERS:-false}" = "true" ]; then
+            pip install -q "ruff==${OSS_RUFF_VERSION:-0.11.8}"
+            ruff check . --output-format sarif -o linter.sarif || true
+          else
+            echo '{"runs":[{"results":[]}]}' > linter.sarif
+          fi
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: linters
+          report: linter.sarif
+          category: linters
+          tool_name: ruff
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}

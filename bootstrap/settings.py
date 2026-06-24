@@ -97,6 +97,12 @@ class Settings(BaseSettings):
     rbac_role_reader: str = Field(default="egregore-reader", validation_alias="RBAC_ROLE_READER")
     gateway_access_token: str = Field(default="", validation_alias="GATEWAY_ACCESS_TOKEN")
 
+    auth_broker_url: str = Field(default="", validation_alias="BROKER_URL")
+    auth_broker_service_token: str = Field(default="", validation_alias="BROKER_SERVICE_TOKEN")
+    auth_broker_service_id: str = Field(default="egregore", validation_alias="BROKER_SERVICE_ID")
+    auth_broker_audience: str = Field(default="veil-api", validation_alias="BROKER_VEIL_AUDIENCE")
+    use_auth_broker: bool = Field(default=False, validation_alias="USE_AUTH_BROKER")
+
     @model_validator(mode="after")
     def validate_auth_config(self) -> Self:
         if self.auth_enabled and not self.keycloak_issuer.strip():

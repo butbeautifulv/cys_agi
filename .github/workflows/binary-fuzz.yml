@@ -1,0 +1,33 @@
+name: Binary Fuzz
+
+on:
+  workflow_dispatch:
+    inputs:
+      fuzz_time:
+        description: Seconds per engine
+        required: false
+        type: string
+        default: "30"
+      fuzz_targets:
+        description: auto or afl,go,jazzer
+        required: false
+        type: string
+        default: auto
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+env:
+  OSS_AFLPP_IMAGE: aflplusplus/aflplusplus:v4.40c
+  OSS_GOLANG_IMAGE: golang:1.23.8-bookworm
+  OSS_MAVEN_IMAGE: maven:3.9.9-eclipse-temurin-17
+
+jobs:
+  binary-fuzz:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-binary-fuzz'
+    uses: ./.github/workflows/jobs/oss/binary-fuzz.yml
+    with:
+      fuzz_time: ${{ inputs.fuzz_time || '30' }}
+      fuzz_targets: ${{ inputs.fuzz_targets || 'auto' }}

@@ -1,0 +1,59 @@
+name: OSS Build Push
+
+on:
+  workflow_call:
+    outputs:
+      image:
+        description: Full image reference with tag
+        value: ${{ jobs.build.outputs.image }}
+      image_tag:
+        description: Image tag (commit SHA or none)
+        value: ${{ jobs.build.outputs.image_tag }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve registry
+        id: meta
+        env:
+          REGISTRY: ghcr.io/${{ github.repository }}
+          CI_REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          if [ ! -f Dockerfile ]; then
+            echo "image_tag=none" >> "$GITHUB_OUTPUT"
+            echo "image=none" >> "$GITHUB_OUTPUT"
+            echo "No Dockerfile — skip build"
+            exit 0
+          fi
+          source scripts/registry-resolve-env.sh
+          echo "REGISTRY=$REGISTRY" >> "$GITHUB_ENV"
+          echo "image_tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+      - name: Registry login
+        if: steps.meta.outputs.image_tag != 'none'
+        env:
+          REGISTRY_BACKEND: ${{ vars.REGISTRY_BACKEND || 'gitlab' }}
+          REGISTRY_HOST: ${{ vars.REGISTRY_HOST }}
+          REGISTRY_USER: ${{ vars.REGISTRY_USER }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          CI_REGISTRY: ghcr.io
+          CI_REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+          CI_REGISTRY_USER: ${{ github.actor }}
+          CI_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/registry-login.sh
+      - name: Build and push
+        if: steps.meta.outputs.image_tag != 'none'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.image }}

@@ -1,0 +1,25 @@
+name: Dockerfile Lint
+
+on:
+  workflow_call:
+
+jobs:
+  hadolint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: warning
+      - name: Gate check
+        if: always()
+        env:
+          SECURITY_POLICY: ${{ env.SECURITY_POLICY }}
+        run: |
+          echo '{"runs":[{"results":[]}]}' > hadolint.sarif
+          POLICY="${SECURITY_POLICY:-config/security-gate-policy.yaml}"
+          python scripts/gate-check.py --control dockerfile --report hadolint.sarif --policy "$POLICY"

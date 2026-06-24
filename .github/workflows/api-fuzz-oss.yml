@@ -1,0 +1,32 @@
+name: OSS API Fuzz
+
+on:
+  workflow_dispatch:
+    inputs:
+      openapi_spec:
+        description: OpenAPI URL or leave empty to use repo openapi/ or PREPROD default
+        required: false
+        type: string
+      api_base_url:
+        description: API base URL (--url)
+        required: false
+        type: string
+      phases:
+        description: Comma-separated phases (examples,coverage,fuzzing,stateful)
+        required: false
+        type: string
+        default: examples,coverage,fuzzing
+
+permissions:
+  contents: read
+
+env:
+  OSS_SCHEMATHESIS_IMAGE: ghcr.io/schemathesis/schemathesis:4.21.7
+
+jobs:
+  schemathesis:
+    uses: ./.github/workflows/jobs/oss/api-fuzz-schemathesis.yml
+    with:
+      openapi_spec: ${{ inputs.openapi_spec }}
+      api_base_url: ${{ inputs.api_base_url }}
+      phases: ${{ inputs.phases }}

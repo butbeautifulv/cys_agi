@@ -1,0 +1,44 @@
+name: OSS Forbidden Files
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  forbidden-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan suspicious files
+        run: |
+          echo '{"runs":[{"results":[]}]}' > forbidden-files.sarif
+          FOUND=0
+          PATTERNS='\.env$|\.pem$|\.key$|id_rsa|\.p12$|\.pfx$'
+          while IFS= read -r f; do
+            case "$f" in
+              */.env.example|*/.env.sample) continue ;;
+            esac
+            echo "WARN: suspicious file $f"
+            FOUND=1
+          done < <(find . -type f -regextype posix-extended -regex ".*(${PATTERNS})" \
+            ! -path './.git/*' 2>/dev/null || true)
+          while IFS= read -r f; do
+            file "$f" | grep -qiE 'executable|ELF|Mach-O' && {
+              echo "WARN: binary $f"; FOUND=1;
+            }
+          done < <(find . -type f ! -path './.git/*' 2>/dev/null | head -500)
+          if [ "$FOUND" -eq 1 ]; then
+            echo '{"runs":[{"results":[{"level":"medium","message":{"text":"forbidden or suspicious files detected"}}]}]}' > forbidden-files.sarif
+          fi
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: linters
+          report: forbidden-files.sarif
+          category: forbidden-files
+          tool_name: forbidden-files
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}

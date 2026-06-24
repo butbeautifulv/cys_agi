@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository }}
+  ENABLE_REAL_LINTERS: ${{ vars.ENABLE_REAL_LINTERS || 'false' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint
+        run: |
+          if [ "$ENABLE_REAL_LINTERS" = "true" ]; then
+            pip install ruff
+            ruff check .
+          else
+            echo "Placeholder lint — set repo variable ENABLE_REAL_LINTERS=true"
+          fi
+
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: |
+          if [ -f requirements.txt ] && [ -d tests ]; then
+            pip install pytest -r requirements.txt
+            pytest tests/ -q
+          else
+            echo "Placeholder unit tests"
+          fi
+
+  security-gates:
+    needs: [lint, unit-test]
+    uses: ./.github/workflows/security-gates.yml
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: read
+
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [security-gates]
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+      - name: Build image
+        run: |
+          if [ -f Dockerfile ]; then
+            docker build -t ${{ env.REGISTRY }}:${{ github.sha }} .
+          else
+            echo "No Dockerfile"
+          fi
+
+  sbom:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    uses: ./.github/workflows/jobs/sbom.yml
+
+  container-scan:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    uses: ./.github/workflows/jobs/container-scan.yml
+    with:
+      image: ${{ env.REGISTRY }}:${{ github.sha }}
+
+  sign:
+    if: github.ref == 'refs/heads/main'
+    needs: [container-scan]
+    uses: ./.github/workflows/jobs/sign.yml
+
+  deploy-preprod:
+    if: github.ref == 'refs/heads/main'
+    needs: [sign]
+    uses: ./.github/workflows/deploy-preprod.yml
+
+  dast:
+    if: github.ref == 'refs/heads/main'
+    needs: [deploy-preprod]
+    uses: ./.github/workflows/dast.yml
+
+  sec-func-tests:
+    if: github.ref == 'refs/heads/main'
+    needs: [deploy-preprod]
+    uses: ./.github/workflows/jobs/sec-func-tests.yml
+
+  iast-preprod:
+    if: github.ref == 'refs/heads/main'
+    needs: [deploy-preprod]
+    uses: ./.github/workflows/jobs/iast-preprod.yml

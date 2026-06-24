@@ -1,0 +1,44 @@
+name: Security Functional Tests
+
+on:
+  workflow_call:
+
+jobs:
+  security-tests:
+    runs-on: ubuntu-latest
+    env:
+      PREPROD_URL: ${{ vars.PREPROD_URL || 'https://preprod.example.com' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: |
+          echo '{"runs":[{"results":[]}]}' > sec-tests.sarif
+          FAILED=0
+          if [ -d tests/security ]; then
+            pip install pytest requests -q
+            pytest tests/security/ -v -m "security or not security" || FAILED=1
+          elif [ -f package.json ]; then
+            if [ -f package-lock.json ]; then npm ci; else npm install; fi
+            if node -e "const p=require('./package.json'); process.exit(p.scripts&&p.scripts['test:security']?0:1)" 2>/dev/null; then
+              npm run test:security || FAILED=1
+            elif node -e "const p=require('./package.json'); const d=JSON.stringify(p.devDependencies||{}); process.exit(d.includes('vitest')?0:1)" 2>/dev/null; then
+              npm run test:coverage -- --grep @security 2>/dev/null || npm test -- --grep @security || FAILED=1
+            else
+              echo "No tests/security/ or npm test:security / vitest @security — add security tests (D2)"
+            fi
+          else
+            echo "tests/security not found — add security tests (D2)"
+          fi
+          if [ "$FAILED" -eq 1 ]; then
+            echo '{"runs":[{"results":[{"level":"high","message":{"text":"security functional tests failed"}}]}]}' > sec-tests.sarif
+          fi
+          python scripts/normalize-sarif.py sec-tests.sarif sec-func-tests
+      - name: Gate check
+        if: always()
+        run: python scripts/gate-check.py --control sec_func_tests --report sec-tests.sarif

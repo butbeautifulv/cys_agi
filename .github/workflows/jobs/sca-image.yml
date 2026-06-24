@@ -1,0 +1,27 @@
+name: SCA Image
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        required: true
+        type: string
+
+jobs:
+  trivy-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ inputs.image }}
+          severity: CRITICAL,HIGH
+          format: sarif
+          output: sca.sarif
+          exit-code: "0"
+      - name: Gate check
+        run: python scripts/gate-check.py --control sca --report sca.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: sca.sarif
+          category: sca

@@ -1,0 +1,15 @@
+name: ML Data Scan
+
+on:
+  workflow_call:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python scripts/ai-ml-scan.py ml_data --report ml-data.sarif
+      - run: python scripts/gate-check.py --control ml_data --report ml-data.sarif

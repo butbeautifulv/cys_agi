@@ -1,0 +1,9 @@
+# Backward-compatible include — B3 OSA (manifest scan)
+name: SCA
+
+on:
+  workflow_call:
+
+jobs:
+  osa:
+    uses: ./.github/workflows/jobs/osa.yml

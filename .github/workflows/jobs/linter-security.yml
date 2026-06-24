@@ -1,0 +1,36 @@
+name: Security Linters
+
+on:
+  workflow_call:
+
+jobs:
+  linter-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+      - name: Ruff security lint
+        run: |
+          if [ "${ENABLE_REAL_LINTERS:-false}" = "true" ]; then
+            uv run ruff check . --output-format sarif -o linter.sarif || true
+          else
+            echo '{"runs":[{"results":[]}]}' > linter.sarif
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Gate check
+        env:
+          SECURITY_POLICY: ${{ env.SECURITY_POLICY }}
+        run: |
+          POLICY="${SECURITY_POLICY:-config/security-gate-policy.yaml}"
+          python scripts/gate-check.py --control linters --report linter.sarif --policy "$POLICY"
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: linter.sarif
+          category: linters

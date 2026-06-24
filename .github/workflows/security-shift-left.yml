@@ -1,0 +1,26 @@
+name: Security Shift Left
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+env:
+  ENABLE_REAL_LINTERS: "true"
+  SECURITY_POLICY: config/security-gate-policy-adopt.yaml
+
+jobs:
+  security-gates:
+    uses: ./.github/workflows/security-gates.yml
+    with:
+      security_policy: config/security-gate-policy-adopt.yaml
+      enable_real_linters: "true"
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: read

@@ -1,0 +1,29 @@
+name: API Fuzz
+
+on:
+  workflow_dispatch:
+    inputs:
+      openapi_spec:
+        description: OpenAPI URL or leave empty to use repo openapi/
+        required: false
+        type: string
+      api_base_url:
+        description: API base URL (--url)
+        required: false
+        type: string
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+env:
+  OSS_SCHEMATHESIS_IMAGE: ghcr.io/schemathesis/schemathesis:4.21.7
+
+jobs:
+  schemathesis:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-api-fuzz'
+    uses: ./.github/workflows/jobs/oss/api-fuzz-schemathesis.yml
+    with:
+      openapi_spec: ${{ inputs.openapi_spec || '' }}
+      api_base_url: ${{ inputs.api_base_url || '' }}

@@ -1,0 +1,29 @@
+name: OSS Trivy OSA
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  trivy-osa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan filesystem
+        run: |
+          IMAGE="${OSS_TRIVY_IMAGE:-aquasec/trivy:0.63.0}"
+          docker run --rm -v "$PWD:/work" -w /work "$IMAGE" \
+            fs . --scanners vuln --severity CRITICAL,HIGH --format sarif --output osa.sarif || true
+          sudo chown "$(id -u):$(id -g)" osa.sarif 2>/dev/null || true
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: osa
+          report: osa.sarif
+          category: osa
+          tool_name: trivy
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}

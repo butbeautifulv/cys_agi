@@ -1,0 +1,37 @@
+name: OSS DAST
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PREPROD_URL: https://preprod.example.com
+
+jobs:
+  zap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ZAP baseline
+        run: |
+          IMAGE="${OSS_ZAPROXY_IMAGE:-ghcr.io/zaproxy/zaproxy:2.16.0}"
+          mkdir -p reports
+          docker run --rm -v "$PWD/reports:/zap/wrk:rw" "$IMAGE" \
+            zap-baseline.py -t "${PREPROD_URL}" -J /zap/wrk/zap-baseline.json || true
+      - name: Gate check
+        if: always()
+        run: |
+          [ -f reports/zap-baseline.json ] || echo '{"site":[]}' > reports/zap-baseline.json
+          python scripts/gate-check.py --control dast --report reports/zap-baseline.json
+      - name: ASPM export
+        if: always() && vars.DEFECTDOJO_URL != ''
+        env:
+          DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
+          DEFECTDOJO_API_TOKEN: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+        run: python scripts/aspm-export.py --control dast --report reports/zap-baseline.json || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: reports/zap-baseline.json

@@ -1,0 +1,111 @@
+name: OSS DAST (Docker Compose)
+
+on:
+  workflow_dispatch:
+    inputs:
+      compose_file:
+        description: Docker Compose file path
+        required: false
+        default: docker-compose.yml
+      target_url:
+        description: Application URL for ZAP (host network)
+        required: false
+        default: http://localhost:3000
+      health_path:
+        description: Health check path appended to target host
+        required: false
+        default: /
+      compose_services:
+        description: Space-separated services to start before app (e.g. db redis)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  OSS_ZAPROXY_IMAGE: ghcr.io/zaproxy/zaproxy:2.16.0
+  DAST_COMPOSE_FILE: ${{ inputs.compose_file }}
+  DAST_TARGET_URL: ${{ inputs.target_url }}
+  DAST_HEALTH_PATH: ${{ inputs.health_path }}
+  DAST_COMPOSE_SERVICES: ${{ inputs.compose_services }}
+
+jobs:
+  zap-compose:
+    name: ZAP baseline (Compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start infrastructure
+        if: env.DAST_COMPOSE_SERVICES != ''
+        run: docker compose -f "$DAST_COMPOSE_FILE" up -d --wait $DAST_COMPOSE_SERVICES
+
+      - name: Setup Node.js (when package.json present)
+        if: hashFiles('package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install and build app
+        if: hashFiles('package.json') != ''
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          if node -e "const p=require('./package.json'); process.exit(p.scripts&&p.scripts.build?0:1)"; then
+            npm run build
+          fi
+
+      - name: Start application
+        if: hashFiles('package.json') != ''
+        run: |
+          if node -e "const p=require('./package.json'); process.exit(p.scripts&&p.scripts.start?0:1)"; then
+            npm run start > /tmp/dast-app.log 2>&1 &
+            echo $! > /tmp/dast-app.pid
+          elif node -e "const p=require('./package.json'); process.exit(p.scripts&&p.scripts.dev?0:1)"; then
+            npm run dev > /tmp/dast-app.log 2>&1 &
+            echo $! > /tmp/dast-app.pid
+          else
+            echo "No npm start/dev script — set DAST_TARGET_URL to a running service"
+          fi
+
+      - name: Wait for application
+        run: |
+          BASE="${DAST_TARGET_URL%/}"
+          URL="${BASE}${DAST_HEALTH_PATH}"
+          for attempt in $(seq 1 60); do
+            if curl -fsS "$URL" > /dev/null; then
+              echo "Application ready at $URL (attempt ${attempt})"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Application failed to respond at $URL"
+          tail -n 200 /tmp/dast-app.log 2>/dev/null || true
+          exit 1
+
+      - name: ZAP baseline scan
+        run: |
+          IMAGE="${OSS_ZAPROXY_IMAGE:-ghcr.io/zaproxy/zaproxy:2.16.0}"
+          mkdir -p reports
+          docker run --rm --network host -v "$PWD/reports:/zap/wrk:rw" "$IMAGE" \
+            zap-baseline.py -t "${DAST_TARGET_URL}" -J /zap/wrk/zap-baseline.json || true
+          sudo chown "$(id -u):$(id -g)" reports/zap-baseline.json 2>/dev/null || true
+
+      - name: Gate check
+        if: always()
+        run: |
+          [ -f reports/zap-baseline.json ] || echo '{"site":[]}' > reports/zap-baseline.json
+          python scripts/gate-check.py --control dast --report reports/zap-baseline.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-compose-report
+          path: reports/zap-baseline.json
+
+      - name: Stop application
+        if: always() && hashFiles('package.json') != ''
+        run: |
+          if [ -f /tmp/dast-app.pid ]; then kill "$(cat /tmp/dast-app.pid)" 2>/dev/null || true; fi
+          docker compose -f "$DAST_COMPOSE_FILE" down --remove-orphans 2>/dev/null || true

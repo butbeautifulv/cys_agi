@@ -270,7 +270,29 @@ uv run uvicorn interfaces.gateways.tool.server:create_app --factory --port 8090
 # Grafana dashboard: deploy/grafana/dashboards/cys-agi.json
 ```
 
-CI: `.github/workflows/adversarial-gate.yml` (abuse-case matrix), `agent-policy-gate.yml` (agent.yaml policy drift).  
+## CI
+
+CI workflows (parallel on PR / push to `main`):
+
+| Workflow | Scope |
+|----------|--------|
+| `arch-gate.yml` | import-linter, arch audit, pytest + domain 100% coverage |
+| `adversarial-gate.yml` | `tests/adversarial/` abuse-case matrix |
+| `agent-policy-gate.yml` | `agent.yaml` policy drift vs adversarial tests (PR only) |
+| `security-shift-left.yml` | Fabrica B1–B6: Gitleaks, CodeQL+Semgrep, Trivy OSA, Checkov IaC, Hadolint, Ruff |
+
+**Security shift-left** (from [fabrica](https://github.com/butbeautifulv/fabrica) `shift-left` profile):
+
+- Policy day-1: `config/security-gate-policy-adopt.yaml` (warn on noisy scanners)
+- After triage: switch `SECURITY_POLICY` in `security-shift-left.yml` to `config/security-gate-policy.yaml`
+- Gates: `scripts/gate-check.py` + SARIF reports per control
+
+```bash
+# Local policy smoke
+python3 scripts/validate-policy.py
+python3 scripts/gate-check.py --help
+```
+
 Opt-in live Postgres: `.github/workflows/integration-postgres.yml` (`workflow_dispatch`).
 
 ## Тестирование

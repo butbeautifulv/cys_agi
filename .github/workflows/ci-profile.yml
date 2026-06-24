@@ -1,0 +1,40 @@
+# GitHub profile: shift-left — includes security-gates reusable workflow
+
+name: CI Shift Left
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository }}
+  ENABLE_REAL_LINTERS: "false"
+
+jobs:
+  validate:
+    uses: ./.github/workflows/base-validate.yml
+    with:
+      enable_real_linters: ${{ env.ENABLE_REAL_LINTERS }}
+
+  security-gates:
+    needs: [validate]
+    uses: ./.github/workflows/security-gates.yml
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: read
+
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [security-gates]
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "build stub — see templates/github/workflows/ci.yml"

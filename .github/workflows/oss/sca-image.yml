@@ -1,0 +1,53 @@
+name: OSS SCA Image
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  security-events: write
+  packages: read
+
+jobs:
+  trivy-sca:
+    runs-on: ubuntu-latest
+    if: inputs.image != 'none' && inputs.image != ''
+    steps:
+      - uses: actions/checkout@v4
+      - name: Registry auth for private image
+        env:
+          REGISTRY_BACKEND: ${{ vars.REGISTRY_BACKEND || 'gitlab' }}
+          REGISTRY_HOST: ${{ vars.REGISTRY_HOST }}
+          REGISTRY_USER: ${{ vars.REGISTRY_USER }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          CI_REGISTRY_USER: ${{ github.actor }}
+          CI_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source scripts/registry-resolve-env.sh
+          source scripts/registry-auth-env.sh
+          echo "TRIVY_USERNAME=$TRIVY_USERNAME" >> "$GITHUB_ENV"
+          echo "TRIVY_PASSWORD=$TRIVY_PASSWORD" >> "$GITHUB_ENV"
+      - name: Scan image
+        run: |
+          TRIVY_IMAGE="${OSS_TRIVY_IMAGE:-aquasec/trivy:0.63.0}"
+          docker run --rm \
+            -e TRIVY_USERNAME -e TRIVY_PASSWORD \
+            -v "$PWD:/work" -w /work \
+            "$TRIVY_IMAGE" image --scanners vuln --severity CRITICAL,HIGH --format sarif \
+            --output sca.sarif "${{ inputs.image }}" || true
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: sca
+          report: sca.sarif
+          category: sca
+
+  skip:
+    runs-on: ubuntu-latest
+    if: inputs.image == 'none' || inputs.image == ''
+    steps:
+      - run: echo "No image to scan — skip SCA"

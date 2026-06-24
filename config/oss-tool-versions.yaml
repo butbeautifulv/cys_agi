@@ -1,0 +1,43 @@
+# OSS scanner/tool version manifest — profile oss-full
+# Update only via PR + SecChamp review after vendor advisory.
+# Do NOT use :latest, :stable, or install scripts from main branch.
+
+policy:
+  forbid_tags: [latest, stable, main]
+  forbid_rolling_install: true
+  update_process: "PR + SecChamp + advisory review"
+  incident_ref: docs/references/supply-chain-teampcp-2026.md
+
+images:
+  semgrep: "returntocorp/semgrep:1.117.0"
+  syft: "anchore/syft:v1.20.0"
+  trivy: "aquasec/trivy:0.63.0"
+  gitleaks: "ghcr.io/gitleaks/gitleaks:v8.22.1"
+  hadolint: "hadolint/hadolint:v2.12.0-alpine"
+  conftest: "ghcr.io/openpolicyagent/conftest:v0.56.0"
+  zaproxy: "ghcr.io/zaproxy/zaproxy:2.16.0"
+  schemathesis: "ghcr.io/schemathesis/schemathesis:4.21.7"
+  aflpp: "aflplusplus/aflplusplus:v4.40c"
+  golang: "golang:1.23.8-bookworm"
+  maven: "maven:3.9.9-eclipse-temurin-17"
+  curl: "curlimages/curl:8.12.1"
+  helm: "alpine/helm:3.17.2"
+  kubectl: "1.32.2"
+  python: "python:3.11.11-slim-bookworm"
+  docker_cli: "docker:24.0.9-cli"
+  docker_dind: "docker:24.0.9-dind"
+  cosign: "gcr.io/projectsigstore/cosign:v2.4.0"
+  alpine: "alpine:3.20.3"
+
+pip:
+  checkov: "3.2.449"
+  ruff: "0.11.8"
+
+github_actions:
+  checkout: "v4"
+  upload_sarif: "v3"
+  upload_artifact: "v4"
+  login_ghcr: "v3"
+  build_push: "v6"
+  cosign_installer: "v3.6.0"
+  # Trivy: pinned docker image (aquasec/trivy) — not tarball / trivy-action

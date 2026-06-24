@@ -1,0 +1,48 @@
+name: Base Validate
+
+on:
+  workflow_call:
+    inputs:
+      enable_real_linters:
+        description: Run Ruff when true
+        required: false
+        type: string
+        default: "false"
+      ruff_version:
+        description: Pinned Ruff version for oss-full
+        required: false
+        type: string
+        default: "0.11.8"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Lint
+        run: |
+          if [ "${{ inputs.enable_real_linters }}" = "true" ]; then
+            pip install -q "ruff==${{ inputs.ruff_version }}"
+            ruff check . || true
+          else
+            echo "Placeholder lint — set enable_real_linters=true"
+          fi
+
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Unit tests
+        run: |
+          if [ -f requirements.txt ] && [ -d tests ]; then
+            pip install -q pytest -r requirements.txt
+            pytest tests/ -q || true
+          else
+            echo "Placeholder unit tests — add tests/ and requirements.txt"
+          fi

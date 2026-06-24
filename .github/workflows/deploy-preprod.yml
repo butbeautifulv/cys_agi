@@ -1,0 +1,16 @@
+name: Deploy Preprod
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: preprod
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to preprod
+        run: |
+          echo "kubectl set image deployment/app app=ghcr.io/${{ github.repository }}:${{ github.sha }} -n preprod"

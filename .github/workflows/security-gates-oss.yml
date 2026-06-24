@@ -1,0 +1,217 @@
+name: OSS Security Gates
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+env:
+  OSS_GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.22.1
+  OSS_SEMGREP_IMAGE: returntocorp/semgrep:1.117.0
+  OSS_TRIVY_IMAGE: aquasec/trivy:0.63.0
+  OSS_HADOLINT_IMAGE: hadolint/hadolint:v2.12.0-alpine
+  OSS_CHECKOV_VERSION: "3.2.449"
+  OSS_RUFF_VERSION: "0.11.8"
+
+jobs:
+  secrets:
+    name: secrets — Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo "${{ env.OSS_GITLEAKS_IMAGE }}" \
+            detect --source . --report-format sarif --report-path gitleaks.sarif --no-git || true
+          sudo chown "$(id -u):$(id -g)" gitleaks.sarif 2>/dev/null || true
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: secrets
+          report: gitleaks.sarif
+          category: secrets
+          tool_name: gitleaks
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+
+  sast:
+    name: sast — Semgrep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep scan
+        run: |
+          docker run --rm -v "$PWD:/src" -e HOME=/tmp "${{ env.OSS_SEMGREP_IMAGE }}" \
+            semgrep scan --config p/ci --sarif -o /src/semgrep.sarif /src || true
+          sudo chown "$(id -u):$(id -g)" semgrep.sarif 2>/dev/null || true
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: sast
+          report: semgrep.sarif
+          category: sast
+          tool_name: semgrep
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+
+  osa:
+    name: osa — Trivy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan filesystem
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work "${{ env.OSS_TRIVY_IMAGE }}" \
+            fs . --scanners vuln --severity CRITICAL,HIGH --format sarif --output osa.sarif || true
+          sudo chown "$(id -u):$(id -g)" osa.sarif 2>/dev/null || true
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: osa
+          report: osa.sarif
+          category: osa
+          tool_name: trivy
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+
+  iac:
+    name: iac — Checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Checkov
+        run: pip install -q "checkov==${{ env.OSS_CHECKOV_VERSION }}"
+      - name: Scan
+        run: |
+          mkdir -p reports
+          checkov -d . --framework terraform,kubernetes,helm,dockerfile,docker_compose \
+            --soft-fail --output sarif --output-file-path reports || true
+          REPORT=reports/results_sarif.sarif
+          [ -f "$REPORT" ] || REPORT=reports/checkov.sarif
+          [ -f "$REPORT" ] || echo '{"runs":[{"results":[]}]}' > reports/checkov.sarif
+          [ -f reports/checkov.sarif ] || cp "$REPORT" reports/checkov.sarif
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: iac
+          report: reports/checkov.sarif
+          category: iac
+          tool_name: checkov
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+
+  dockerfile:
+    name: dockerfile — Hadolint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hadolint
+        run: |
+          echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"hadolint"}},"results":[]}]}' > hadolint.sarif
+          FAILED=0
+          while IFS= read -r f; do
+            echo "Linting $f"
+            docker run --rm -i "${{ env.OSS_HADOLINT_IMAGE }}" < "$f" || FAILED=1
+          done < <(find . \( -name 'Dockerfile' -o -name 'Dockerfile.*' \) ! -path './.git/*')
+          if [ "$FAILED" -eq 1 ]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          Path("hadolint.sarif").write_text(json.dumps({
+            "version": "2.1.0",
+            "runs": [{
+              "tool": {"driver": {"name": "hadolint"}},
+              "results": [{
+                "level": "warning",
+                "message": {"text": "Hadolint findings — see job log"},
+                "locations": [{
+                  "physicalLocation": {
+                    "artifactLocation": {"uri": "Dockerfile", "uriBaseId": "%SRCROOT%"},
+                    "region": {"startLine": 1}
+                  }
+                }]
+              }]
+            }]
+          }))
+          PY
+          fi
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: dockerfile
+          report: hadolint.sarif
+          category: dockerfile
+          tool_name: hadolint
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+
+  linters:
+    name: linters — Ruff
+    if: hashFiles('requirements.txt', 'pyproject.toml', 'ruff.toml') != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Ruff
+        run: |
+          if [ "${ENABLE_REAL_LINTERS:-false}" = "true" ]; then
+            pip install -q "ruff==${OSS_RUFF_VERSION:-0.11.8}"
+            ruff check . --output-format sarif -o linter.sarif || true
+          else
+            echo '{"runs":[{"results":[]}]}' > linter.sarif
+          fi
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: linters
+          report: linter.sarif
+          category: linters
+          tool_name: ruff
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+
+  forbidden-files:
+    name: forbidden files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan suspicious files
+        run: |
+          echo '{"runs":[{"results":[]}]}' > forbidden-files.sarif
+          FOUND=0
+          PATTERNS='\.env$|\.pem$|\.key$|id_rsa|\.p12$|\.pfx$'
+          while IFS= read -r f; do
+            case "$f" in
+              */.env.example|*/.env.sample) continue ;;
+            esac
+            echo "WARN: suspicious file $f"
+            FOUND=1
+          done < <(find . -type f -regextype posix-extended -regex ".*(${PATTERNS})" \
+            ! -path './.git/*' 2>/dev/null || true)
+          while IFS= read -r f; do
+            file "$f" | grep -qiE 'executable|ELF|Mach-O' && {
+              echo "WARN: binary $f"; FOUND=1;
+            }
+          done < <(find . -type f ! -path './.git/*' 2>/dev/null | head -500)
+          if [ "$FOUND" -eq 1 ]; then
+            echo '{"runs":[{"results":[{"level":"medium","message":{"text":"forbidden or suspicious files detected"}}]}]}' > forbidden-files.sarif
+          fi
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: linters
+          report: forbidden-files.sarif
+          category: forbidden-files
+          tool_name: forbidden-files
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}

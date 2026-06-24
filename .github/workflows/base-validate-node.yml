@@ -1,0 +1,68 @@
+name: Base Validate (Node)
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: Node.js version
+        required: false
+        type: string
+        default: "20"
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; else exit 0; fi
+      - name: Typecheck
+        run: |
+          if node -e "const p=require('./package.json'); process.exit(p.scripts&&p.scripts.typecheck?0:1)" 2>/dev/null; then
+            npm run typecheck
+          else
+            echo "Skip typecheck — add npm run typecheck to package.json"
+          fi
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; else exit 0; fi
+      - name: ESLint
+        run: |
+          if node -e "const p=require('./package.json'); process.exit(p.scripts&&(p.scripts.lint||p.scripts.eslint)?0:1)" 2>/dev/null; then
+            npm run lint 2>/dev/null || npm run eslint
+          else
+            echo "Skip lint — add npm run lint to package.json"
+          fi
+
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; else exit 0; fi
+      - name: Unit tests
+        run: |
+          if node -e "const p=require('./package.json'); const s=p.scripts||{}; process.exit(s.test||s['test:coverage']?0:1)" 2>/dev/null; then
+            npm run test:coverage 2>/dev/null || npm test
+          else
+            echo "Skip tests — add npm test or test:coverage to package.json"
+          fi

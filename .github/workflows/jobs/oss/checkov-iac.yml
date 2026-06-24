@@ -1,0 +1,37 @@
+name: OSS Checkov IaC
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  checkov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Checkov
+        run: pip install -q "checkov==${OSS_CHECKOV_VERSION:-3.2.449}"
+      - name: Scan
+        run: |
+          mkdir -p reports
+          checkov -d . --framework terraform,kubernetes,helm,dockerfile,docker_compose --soft-fail \
+            --output sarif --output-file-path reports || true
+          REPORT=reports/results_sarif.sarif
+          [ -f "$REPORT" ] || REPORT=reports/checkov.sarif
+          [ -f "$REPORT" ] || echo '{"runs":[{"results":[]}]}' > reports/checkov.sarif
+          [ -f reports/checkov.sarif ] || cp "$REPORT" reports/checkov.sarif
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: iac
+          report: reports/checkov.sarif
+          category: iac
+          tool_name: checkov
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}

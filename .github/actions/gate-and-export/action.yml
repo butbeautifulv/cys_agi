@@ -1,0 +1,65 @@
+name: Gate check and ASPM export
+description: SARIF fallback, gate-check.py, optional DefectDojo export, upload-sarif
+
+inputs:
+  control:
+    description: Policy control id (sast, secrets, iac, ...)
+    required: true
+  report:
+    description: Path to SARIF or SBOM report file
+    required: true
+  category:
+    description: upload-sarif category
+    required: true
+  tool_name:
+    description: SARIF tool.driver.name fallback for normalize step
+    required: false
+    default: scanner
+  policy:
+    description: Path to security-gate-policy.yaml
+    required: false
+    default: config/security-gate-policy.yaml
+  defectdojo_url:
+    description: Optional DefectDojo base URL (pass from workflow vars)
+    required: false
+    default: ""
+  defectdojo_token:
+    description: Optional DefectDojo API token (pass from workflow secrets)
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Ensure report exists
+      shell: bash
+      run: |
+        REPORT="${{ inputs.report }}"
+        mkdir -p "$(dirname "$REPORT")"
+        python scripts/normalize-sarif.py "$REPORT" "${{ inputs.tool_name }}"
+    - name: Gate check
+      shell: bash
+      run: |
+        python scripts/gate-check.py --control "${{ inputs.control }}" \
+          --report "${{ inputs.report }}" \
+          --policy "${{ inputs.policy }}"
+    - name: Normalize SARIF for upload
+      if: always()
+      shell: bash
+      run: python scripts/normalize-sarif.py "${{ inputs.report }}" "${{ inputs.tool_name }}"
+    - name: ASPM export
+      if: always() && inputs.defectdojo_url != ''
+      shell: bash
+      env:
+        DEFECTDOJO_URL: ${{ inputs.defectdojo_url }}
+        DEFECTDOJO_API_TOKEN: ${{ inputs.defectdojo_token }}
+      run: |
+        if [ -f scripts/aspm-export.py ]; then
+          python scripts/aspm-export.py --control "${{ inputs.control }}" --report "${{ inputs.report }}" || true
+        fi
+    - name: Upload SARIF
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.report }}
+        category: ${{ inputs.category }}

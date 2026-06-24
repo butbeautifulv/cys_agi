@@ -1,0 +1,28 @@
+# GENERATED — do not edit. Run: python3 scripts/generate-oss-pins.py
+# GitHub OSS env — source: config/oss-tool-versions.yaml
+# Used by profile oss-full and security-gates-oss workflows
+
+REGISTRY_BACKEND: gitlab
+ENABLE_REAL_LINTERS: "true"
+SECURITY_POLICY: config/security-gate-policy.yaml
+
+OSS_SEMGREP_IMAGE: returntocorp/semgrep:1.117.0
+OSS_SYFT_VERSION: v1.20.0
+OSS_TRIVY_IMAGE: aquasec/trivy:0.63.0
+OSS_GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.22.1
+OSS_HADOLINT_IMAGE: hadolint/hadolint:v2.12.0-alpine
+OSS_CONFTEST_IMAGE: ghcr.io/openpolicyagent/conftest:v0.56.0
+OSS_ZAPROXY_IMAGE: ghcr.io/zaproxy/zaproxy:2.16.0
+OSS_SCHEMATHESIS_IMAGE: ghcr.io/schemathesis/schemathesis:4.21.7
+OSS_AFLPP_IMAGE: aflplusplus/aflplusplus:v4.40c
+OSS_GOLANG_IMAGE: golang:1.23.8-bookworm
+OSS_MAVEN_IMAGE: maven:3.9.9-eclipse-temurin-17
+OSS_CHECKOV_VERSION: "3.2.449"
+OSS_RUFF_VERSION: "0.11.8"
+
+ACTIONS_CHECKOUT: v4
+ACTIONS_UPLOAD_SARIF: v3
+ACTIONS_UPLOAD_ARTIFACT: v4
+ACTIONS_LOGIN_GHCR: v3
+ACTIONS_BUILD_PUSH: v6
+COSIGN_INSTALLER_VERSION: v3.6.0

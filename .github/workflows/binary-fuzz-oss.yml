@@ -1,0 +1,30 @@
+name: OSS Binary Fuzz
+
+on:
+  workflow_dispatch:
+    inputs:
+      fuzz_time:
+        description: Seconds per engine (AFL -V, Go -fuzztime, Jazzer duration)
+        required: false
+        type: string
+        default: "30"
+      fuzz_targets:
+        description: auto or comma-separated afl,go,jazzer
+        required: false
+        type: string
+        default: auto
+
+permissions:
+  contents: read
+
+env:
+  OSS_AFLPP_IMAGE: aflplusplus/aflplusplus:v4.40c
+  OSS_GOLANG_IMAGE: golang:1.23.8-bookworm
+  OSS_MAVEN_IMAGE: maven:3.9.9-eclipse-temurin-17
+
+jobs:
+  binary-fuzz:
+    uses: ./.github/workflows/jobs/oss/binary-fuzz.yml
+    with:
+      fuzz_time: ${{ inputs.fuzz_time }}
+      fuzz_targets: ${{ inputs.fuzz_targets }}

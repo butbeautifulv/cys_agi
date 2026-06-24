@@ -1,0 +1,53 @@
+name: IAST Preprod (OSS)
+
+on:
+  workflow_call:
+    inputs:
+      preprod_url:
+        required: false
+        type: string
+        default: https://preprod.example.com
+      max_minutes:
+        required: false
+        type: string
+        default: "15"
+
+permissions:
+  contents: read
+
+jobs:
+  iast:
+    runs-on: ubuntu-latest
+    environment: preprod
+    steps:
+      - uses: actions/checkout@v4
+      - name: ZAP full scan (OSS IAST)
+        env:
+          PREPROD_URL: ${{ inputs.preprod_url }}
+          ZAP_IAST_MAX_MIN: ${{ inputs.max_minutes }}
+        run: |
+          IMAGE="${OSS_ZAPROXY_IMAGE:-ghcr.io/zaproxy/zaproxy:2.16.0}"
+          mkdir -p reports
+          docker run --rm \
+            -v "$PWD/reports:/zap/wrk:rw" \
+            -e "ZAP_IAST_MAX_MIN=${ZAP_IAST_MAX_MIN}" \
+            "$IMAGE" \
+            zap-full-scan.py -t "${PREPROD_URL}" \
+              -J /zap/wrk/zap-iast-full.json \
+              -r /zap/wrk/zap-iast-full.html \
+              -m "${ZAP_IAST_MAX_MIN}" || true
+      - name: Gate check
+        if: always()
+        run: |
+          [ -f reports/zap-iast-full.json ] || echo '{"site":[]}' > reports/zap-iast-full.json
+          python3 scripts/gate-check.py --control iast --report reports/zap-iast-full.json
+      - name: ASPM export
+        if: always() && vars.DEFECTDOJO_URL != ''
+        env:
+          DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
+          DEFECTDOJO_API_TOKEN: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+        run: python3 scripts/aspm-export.py --control iast --report reports/zap-iast-full.json || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zap-iast-full
+          path: reports/zap-iast-full.*

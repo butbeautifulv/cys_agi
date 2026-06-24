@@ -1,0 +1,165 @@
+version: "1.0"
+changelog:
+  - phase: execution
+    note: gate-check.py, linters B6, profiles, hardening
+  - phase: v1.4
+    note: split OSA (manifests MR) vs SCA (container image post-SBOM)
+  - phase: A2
+    note: Initial defaults
+  - phase: B1
+    note: secrets warn-only
+  - phase: B5
+    note: dockerfile warn → block after stabilization
+
+defaults:
+  severity_block: [critical, high]
+  severity_warn: [medium]
+  severity_info: [low]
+
+secrets:
+  mode: warn
+  block_on_verified: false
+  artifact_retention_days: 30
+
+sast:
+  mode: block
+  severity_block: [critical, high]
+  severity_warn: [medium]
+  mr_scope: diff
+  main_scope: full
+  ignore_files_require_review: true
+
+# B3 — OSA: dependency manifests in repo (MR / Code stage)
+osa:
+  mode: block
+  block_direct_critical: true
+  block_transitive_critical: false
+  reject_latest_tags: true
+
+# C2 — SCA: container image after build + SBOM
+sca:
+  mode: block
+  severity_block: [critical, high]
+  registry_periodic_scan: documented
+
+# Backward-compatible alias for sca (container image)
+container:
+  mode: block
+  severity_block: [critical, high]
+  registry_periodic_scan: documented
+
+iac:
+  mode: block
+  severity_block: [critical, high]
+  paths:
+    - "**/*.tf"
+    - "**/k8s/**"
+    - "**/helm/**"
+    - "docker-compose*.yml"
+
+dockerfile:
+  mode: warn
+  paths: ["Dockerfile", "Dockerfile.*", "**/Dockerfile"]
+
+linters:
+  mode: warn
+  severity_block: [critical, high]
+  enable_var: ENABLE_REAL_LINTERS
+
+sbom:
+  mode: block
+  required_on_main: true
+  format: cyclonedx-json
+  artifact_name: sbom.cdx.json
+
+signing:
+  mode: optional
+  required_on_main: false
+  tool: cosign
+  default_trigger: manual
+
+dast:
+  mode: warn
+  block_release_debt: false
+  trigger: manual_or_label
+
+fuzzing:
+  mode: warn
+  block_release_debt: false
+  trigger: manual_or_label
+  tool: schemathesis
+
+binary_fuzz:
+  mode: warn
+  block_release_debt: false
+  trigger: manual_or_label
+  tools: [aflpp, go, jazzer]
+
+sec_func_tests:
+  mode: warn
+  min_automated_percent: 5
+  target_percent: 20
+
+iast:
+  mode: info
+  block_ci: false
+  default_trigger: manual
+
+waf_rasp:
+  in_pipeline: false
+
+skill_scan:
+  mode: warn
+  paths:
+    - ".cursor/skills/**"
+    - ".agents/skills/**"
+
+mcp_scan:
+  mode: warn
+  paths:
+    - "**/.cursor/mcp.json"
+    - "**/mcp*.json"
+
+ml_data:
+  mode: block
+  block_pii: true
+  paths:
+    - "data/**"
+    - "datasets/**"
+
+ml_bom:
+  mode: warn
+  required_on_main: true
+  artifact_name: ml-bom.json
+
+aibom:
+  mode: warn
+  artifact_name: aibom.json
+
+pickle_scan:
+  mode: warn
+  paths:
+    - "**/*.pkl"
+    - "**/*.pickle"
+    - "models/**"
+
+ml_model:
+  mode: warn
+  default_trigger: manual
+
+aspm_export:
+  mode: optional
+  backend: defectdojo
+  in_pipeline: true
+  block_ci: false
+
+tooling_pins:
+  forbid_image_tags: [latest, stable]
+  forbid_unpinned_pip: true
+  manifest: config/oss-tool-versions.yaml
+
+artifact_registry:
+  default_backend: gitlab
+  allowed_backends: [gitlab, nexus, harbor, artifactory, generic]
+  manifest: config/artifact-registry.yaml
+  require_internal_on_prod: true

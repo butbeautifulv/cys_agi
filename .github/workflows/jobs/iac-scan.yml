@@ -1,0 +1,33 @@
+name: IaC Scan
+
+on:
+  workflow_call:
+
+jobs:
+  checkov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform,kubernetes,helm,dockerfile,docker_compose
+          soft_fail: true
+          output_format: sarif
+          output_file_path: reports/checkov.sarif
+      - name: Gate check
+        env:
+          SECURITY_POLICY: ${{ env.SECURITY_POLICY }}
+        run: |
+          mkdir -p reports
+          [ -f reports/checkov.sarif ] || echo '{"runs":[{"results":[]}]}' > reports/checkov.sarif
+          POLICY="${SECURITY_POLICY:-config/security-gate-policy.yaml}"
+          python scripts/gate-check.py --control iac --report reports/checkov.sarif --policy "$POLICY"
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: reports/checkov.sarif
+          category: iac

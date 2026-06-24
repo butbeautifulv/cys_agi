@@ -1,0 +1,31 @@
+name: OSS SBOM Upload
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom
+          path: .
+      - name: Upload to Dependency-Track
+        env:
+          DTRACK_URL: ${{ vars.DTRACK_URL }}
+          DTRACK_API_KEY: ${{ secrets.DTRACK_API_KEY }}
+          DTRACK_PROJECT_UUID: ${{ vars.DTRACK_PROJECT_UUID }}
+        run: |
+          if [ -z "${DTRACK_URL:-}" ] || [ -z "${DTRACK_API_KEY:-}" ] || [ -z "${DTRACK_PROJECT_UUID:-}" ]; then
+            echo "Set DTRACK_URL, DTRACK_API_KEY, DTRACK_PROJECT_UUID to enable upload"
+            exit 0
+          fi
+          curl -f -X POST "${DTRACK_URL}/api/v1/bom" \
+            -H "X-Api-Key: ${DTRACK_API_KEY}" \
+            -F "project=${DTRACK_PROJECT_UUID}" \
+            -F "bom=@sbom.cdx.json"

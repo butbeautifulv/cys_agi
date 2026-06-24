@@ -1,0 +1,24 @@
+name: OSS Conftest Admission
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  conftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate K8s manifests
+        run: |
+          IMAGE="${OSS_CONFTEST_IMAGE:-ghcr.io/openpolicyagent/conftest:v0.56.0}"
+          FAILED=0
+          for f in templates/k8s/admission/*.yaml k8s/**/*.yaml; do
+            [ -f "$f" ] || continue
+            echo "Validating $f"
+            docker run --rm -v "$PWD:/work" -w /work "$IMAGE" \
+              test "$f" --policy templates/k8s/admission/policies || FAILED=1
+          done
+          exit $FAILED

@@ -1,0 +1,60 @@
+name: OSS Helm Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      namespace:
+        required: true
+        type: string
+      release:
+        required: false
+        type: string
+        default: sample-app
+      image:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Helm deploy
+        env:
+          HELM_RELEASE: ${{ inputs.release }}
+          HELM_NAMESPACE: ${{ inputs.namespace }}
+          HELM_IMAGE: ${{ inputs.image }}
+          HELM_CHART: ${{ vars.HELM_CHART_PATH || 'chart' }}
+          OSS_HELM_IMAGE: alpine/helm:3.17.2
+          OSS_KUBECTL_VERSION: "1.32.2"
+        run: |
+          CHART="${HELM_CHART}"
+          if [ ! -d "$CHART" ] && [ -d templates/k8s/helm/sample-app ]; then
+            CHART="templates/k8s/helm/sample-app"
+          fi
+          REPO="${HELM_IMAGE%:*}"
+          TAG="${HELM_IMAGE##*:}"
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -v "${KUBECONFIG:-$HOME/.kube/config}:/root/.kube/config:ro" \
+            -w /repo \
+            -e HELM_RELEASE -e HELM_NAMESPACE -e REPO -e TAG -e OSS_KUBECTL_VERSION \
+            "${OSS_HELM_IMAGE}" \
+            sh -ec '
+              apk add --no-cache curl >/dev/null
+              curl -LO "https://dl.k8s.io/release/v${OSS_KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+              chmod +x kubectl && mv kubectl /usr/local/bin/
+              kubectl create namespace "${HELM_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+              helm upgrade --install "${HELM_RELEASE}" "'"${CHART}"'" \
+                --namespace "${HELM_NAMESPACE}" \
+                --set image.repository="${REPO}" \
+                --set image.tag="${TAG}" \
+                --wait --timeout 5m
+            '

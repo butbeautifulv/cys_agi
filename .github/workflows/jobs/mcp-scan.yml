@@ -1,0 +1,28 @@
+name: MCP Scanner
+
+on:
+  workflow_call:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Scan MCP configs
+        run: |
+          if command -v mcp-scanner >/dev/null 2>&1; then
+            mcp-scanner scan . -o mcp-scan.sarif || true
+          else
+            python scripts/ai-ml-scan.py mcp_scan --report mcp-scan.sarif
+          fi
+      - name: Gate check
+        if: always()
+        run: python scripts/gate-check.py --control mcp_scan --report mcp-scan.sarif
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mcp-scan
+          path: mcp-scan.sarif

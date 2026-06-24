@@ -1,0 +1,53 @@
+version: "1.0"
+changelog:
+  - phase: adopt
+    note: Day-1 adoption defaults — warn-only for noisy scanners; tighten after triage
+
+defaults:
+  severity_block: [critical, high]
+  severity_warn: [medium]
+  severity_info: [low]
+
+secrets:
+  mode: warn
+  block_on_verified: false
+  artifact_retention_days: 30
+
+sast:
+  mode: warn
+  severity_block: [critical, high]
+  severity_warn: [medium]
+  mr_scope: diff
+  main_scope: full
+  ignore_files_require_review: true
+
+osa:
+  mode: block
+  block_direct_critical: true
+  block_transitive_critical: false
+  reject_latest_tags: true
+
+sca:
+  mode: block
+  severity_block: [critical, high]
+
+container:
+  mode: block
+  severity_block: [critical, high]
+
+iac:
+  mode: block
+  severity_block: [critical, high]
+
+dockerfile:
+  mode: warn
+  severity_block: [critical, high]
+
+linters:
+  mode: warn
+
+dast:
+  mode: warn
+
+sec_func_tests:
+  mode: warn

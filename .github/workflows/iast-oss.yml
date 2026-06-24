@@ -1,0 +1,28 @@
+name: OSS IAST
+
+on:
+  workflow_dispatch:
+    inputs:
+      preprod_url:
+        description: Preprod base URL
+        required: false
+        type: string
+        default: https://preprod.example.com
+      max_minutes:
+        description: ZAP full scan max minutes
+        required: false
+        type: string
+        default: "15"
+
+permissions:
+  contents: read
+
+env:
+  OSS_ZAPROXY_IMAGE: ghcr.io/zaproxy/zaproxy:2.16.0
+
+jobs:
+  iast:
+    uses: ./.github/workflows/jobs/oss/iast-preprod.yml
+    with:
+      preprod_url: ${{ inputs.preprod_url }}
+      max_minutes: ${{ inputs.max_minutes }}

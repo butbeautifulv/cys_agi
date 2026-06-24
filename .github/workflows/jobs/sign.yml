@@ -1,0 +1,14 @@
+name: Sign Image
+
+on:
+  workflow_call:
+
+jobs:
+  cosign:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: signing
+    steps:
+      - run: |
+          echo "Manual signing job — configure cosign keyless OIDC or COSIGN_PRIVATE_KEY"
+          echo "cosign sign --yes ghcr.io/${{ github.repository }}:${{ github.sha }}"

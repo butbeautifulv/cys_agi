@@ -1,0 +1,14 @@
+name: Container Scan
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        required: true
+        type: string
+
+jobs:
+  sca-image:
+    uses: ./.github/workflows/jobs/sca-image.yml
+    with:
+      image: ${{ inputs.image }}

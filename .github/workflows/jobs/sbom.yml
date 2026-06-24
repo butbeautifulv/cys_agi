@@ -1,0 +1,23 @@
+name: SBOM
+
+on:
+  workflow_call:
+
+jobs:
+  syft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          syft-version: v1.20.0
+      - name: Gate check SBOM
+        run: python scripts/gate-check.py --control sbom --report sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+          retention-days: 90

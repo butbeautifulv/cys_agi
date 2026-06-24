@@ -1,0 +1,54 @@
+name: OSS Dockerfile Lint
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  hadolint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hadolint
+        run: |
+          IMAGE="${OSS_HADOLINT_IMAGE:-hadolint/hadolint:v2.12.0-alpine}"
+          echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"hadolint"}},"results":[]}]}' > hadolint.sarif
+          FAILED=0
+          while IFS= read -r f; do
+            echo "Linting $f"
+            docker run --rm -i "$IMAGE" < "$f" || FAILED=1
+          done < <(find . \( -name 'Dockerfile' -o -name 'Dockerfile.*' \) ! -path './.git/*')
+          if [ "$FAILED" -eq 1 ]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          Path("hadolint.sarif").write_text(json.dumps({
+            "version": "2.1.0",
+            "runs": [{
+              "tool": {"driver": {"name": "hadolint"}},
+              "results": [{
+                "level": "warning",
+                "message": {"text": "Hadolint findings — see job log"},
+                "locations": [{
+                  "physicalLocation": {
+                    "artifactLocation": {"uri": "Dockerfile", "uriBaseId": "%SRCROOT%"},
+                    "region": {"startLine": 1}
+                  }
+                }]
+              }]
+            }]
+          }))
+          PY
+          fi
+      - uses: ./.github/actions/gate-and-export
+        if: always()
+        with:
+          control: dockerfile
+          report: hadolint.sarif
+          category: dockerfile
+          tool_name: hadolint
+          defectdojo_url: ${{ vars.DEFECTDOJO_URL }}
+          defectdojo_token: ${{ secrets.DEFECTDOJO_API_TOKEN }}

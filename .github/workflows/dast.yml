@@ -1,0 +1,25 @@
+name: DAST
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  zap:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-dast'
+    runs-on: ubuntu-latest
+    steps:
+      - name: ZAP baseline
+        run: |
+          docker run --rm -v $(pwd):/zap/wrk ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t https://preprod.example.com -J zap-report.json || true
+      - name: Gate check
+        if: always()
+        run: |
+          [ -f zap-report.json ] || echo '{"site":[]}' > zap-report.json
+          python scripts/gate-check.py --control dast --report zap-report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap-report.json

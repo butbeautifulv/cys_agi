@@ -1,0 +1,15 @@
+# Security-sensitive paths (Fabrica shift-left)
+/config/security-gate-policy.yaml @security-team
+/config/security-gate-policy-adopt.yaml @security-team
+/.github/workflows/security-shift-left.yml @security-team @devops-team
+/.github/workflows/security-gates.yml @security-team @devops-team
+/.github/workflows/jobs/ @security-team @devops-team
+/scripts/gate-check.py @security-team
+
+# Product security
+/agents/ @security-team
+/cys_core/domain/security/ @security-team
+/tests/adversarial/ @security-team
+
+# Default
+* @team-leads

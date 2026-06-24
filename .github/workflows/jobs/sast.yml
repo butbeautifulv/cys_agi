@@ -1,0 +1,65 @@
+name: SAST
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"
+      - name: Gate check CodeQL
+        if: always()
+        env:
+          SECURITY_POLICY: ${{ env.SECURITY_POLICY }}
+        run: |
+          REPORT="${{ github.workspace }}/codeql-results.sarif"
+          for f in codeql-results.sarif results/python.sarif; do
+            [ -f "$f" ] && REPORT="$f" && break
+          done
+          [ -f "$REPORT" ] || echo '{"runs":[{"results":[]}]}' > codeql-results.sarif
+          [ -f "$REPORT" ] || REPORT=codeql-results.sarif
+          POLICY="${SECURITY_POLICY:-config/security-gate-policy.yaml}"
+          python scripts/gate-check.py --control sast --report "$REPORT" --policy "$POLICY"
+
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/ci
+      - name: Gate check
+        if: always()
+        env:
+          SECURITY_POLICY: ${{ env.SECURITY_POLICY }}
+        run: |
+          REPORT=semgrep.sarif
+          [ -f "$REPORT" ] || echo '{"runs":[{"results":[]}]}' > "$REPORT"
+          POLICY="${SECURITY_POLICY:-config/security-gate-policy.yaml}"
+          python scripts/gate-check.py --control sast --report "$REPORT" --policy "$POLICY"
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category: sast-semgrep
