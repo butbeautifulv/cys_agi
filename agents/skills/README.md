@@ -1,16 +1,16 @@
 # Product skills
 
-Domain knowledge modules для on-demand загрузки (Deep Agents coordinator).
+Domain knowledge modules для on-demand загрузки (Skill Gateway).
 
 ## Три слоя (см. [AGENTS.md](../../AGENTS.md))
 
 | Слой | Путь | Runtime? |
 |------|------|----------|
-| **Canonical** | `agents/skills/` (this dir) | **Да** |
-| **Cursor stub** | `.agents/skills/<name>/` | Нет |
-| **cxado-skills** | `shared/skills/` in meta-repo | Нет |
+| **Generic hub** | `shared/skills/agent/*` (cxado meta-repo) | Нет — Cursor via `make skills-install` |
+| **Product overlay** | `agents/skills/` (this dir) | **Да** — thin integration on hub |
+| **Core rules** | `shared/agent-rules/core/` | Нет — `.agents/rules/core-*.mdc` symlinks |
 
-Каждая папка — `SKILL.md` с YAML frontmatter по [Agent Skills](https://github.com/anthropics/skills) формату.
+Security skills (`ai-agent-security`, `prompt-injection-defense`, `rag-security`, `skill-supply-chain`) extend generic hub skills with cys-agi paths.
 
 | Skill | Когда использовать |
 |-------|-------------------|

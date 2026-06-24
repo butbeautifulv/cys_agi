@@ -2,7 +2,7 @@
 
 **Upstream:** [Software_Supply_Chain_Security_Cheat_Sheet.md](https://github.com/OWASP/CheatSheetSeries/blob/master/cheatsheets/Software_Supply_Chain_Security_Cheat_Sheet.md)
 
-**Vendored copy:** [docs/reference/owasp/Software_Supply_Chain_Security_Cheat_Sheet.md](../../../docs/reference/owasp/Software_Supply_Chain_Security_Cheat_Sheet.md)
+**Vendored copy:** [refs/owasp/Software_Supply_Chain_Security_Cheat_Sheet.md](../../../refs/owasp/Software_Supply_Chain_Security_Cheat_Sheet.md)
 
 Operational playbook: [SKILL.md](SKILL.md) in this directory.
 

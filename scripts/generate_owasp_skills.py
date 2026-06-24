@@ -12,13 +12,13 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = REPO_ROOT / "agents" / "skills" / "owasp-manifest.yaml"
-DEFAULT_OWASP_DIR = REPO_ROOT / "docs" / "reference" / "owasp"
+DEFAULT_OWASP_DIR = REPO_ROOT / "refs" / "owasp"
 
 REFERENCE_TEMPLATE = """# OWASP reference — {skill}
 
 **Upstream:** [{sheet}](https://github.com/OWASP/CheatSheetSeries/blob/master/cheatsheets/{sheet})
 
-**Vendored copy:** [docs/reference/owasp/{sheet}](../../../docs/reference/owasp/{sheet})
+**Vendored copy:** [refs/owasp/{sheet}](../../../refs/owasp/{sheet})
 
 Operational playbook: [SKILL.md](SKILL.md) in this directory.
 

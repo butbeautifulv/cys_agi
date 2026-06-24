@@ -2,7 +2,7 @@
 
 **Upstream:** [Zero_Trust_Architecture_Cheat_Sheet.md](https://github.com/OWASP/CheatSheetSeries/blob/master/cheatsheets/Zero_Trust_Architecture_Cheat_Sheet.md)
 
-**Vendored copy:** [docs/reference/owasp/Zero_Trust_Architecture_Cheat_Sheet.md](../../../docs/reference/owasp/Zero_Trust_Architecture_Cheat_Sheet.md)
+**Vendored copy:** [refs/owasp/Zero_Trust_Architecture_Cheat_Sheet.md](../../../refs/owasp/Zero_Trust_Architecture_Cheat_Sheet.md)
 
 Operational playbook: [SKILL.md](SKILL.md) in this directory.
 

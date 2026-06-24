@@ -23,13 +23,10 @@ htmlcov/
 .idea/
 .vscode/
 
-# .agents/rules and .agents/skills are committed (Cursor workflow + stubs).
-# Ignore any other future .agents/ content:
+# .agents/rules are committed (Cursor workflow). Core rules via make rules-link symlinks.
 .agents/*
 !.agents/rules/
 !.agents/rules/**
-!.agents/skills/
-!.agents/skills/**
 
 # Local jailbreak/injection corpus (threat intel only, never runtime)
 docs/injections/

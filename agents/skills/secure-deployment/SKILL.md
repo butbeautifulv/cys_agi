@@ -102,6 +102,6 @@ Receiver validates:
 ## Deep reference
 
 - [reference.md](reference.md) — OWASP upstream pointer
-- [docs/reference/owasp/Zero_Trust_Architecture_Cheat_Sheet.md](../../../docs/reference/owasp/Zero_Trust_Architecture_Cheat_Sheet.md)
+- [refs/owasp/Zero_Trust_Architecture_Cheat_Sheet.md](../../../refs/owasp/Zero_Trust_Architecture_Cheat_Sheet.md)
 - `docs/SECURE_DEPLOYMENT.md`
 - Adapted summary: [docs/reference/Zero_Trust_Architecture_Cheat_Sheet.md](../../../docs/reference/Zero_Trust_Architecture_Cheat_Sheet.md)

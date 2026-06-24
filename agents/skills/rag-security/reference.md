@@ -2,7 +2,7 @@
 
 **Upstream:** [RAG_Security_Cheat_Sheet.md](https://github.com/OWASP/CheatSheetSeries/blob/master/cheatsheets/RAG_Security_Cheat_Sheet.md)
 
-**Vendored copy:** [docs/reference/owasp/RAG_Security_Cheat_Sheet.md](../../../docs/reference/owasp/RAG_Security_Cheat_Sheet.md)
+**Vendored copy:** [refs/owasp/RAG_Security_Cheat_Sheet.md](../../../refs/owasp/RAG_Security_Cheat_Sheet.md)
 
 Operational playbook: [SKILL.md](SKILL.md) in this directory.
 
