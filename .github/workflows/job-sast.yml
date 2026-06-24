@@ -27,7 +27,6 @@ jobs:
           category: "/language:python"
       - name: Gate check CodeQL
         if: always()
-        env:
         run: |
           REPORT="${{ github.workspace }}/codeql-results.sarif"
           for f in codeql-results.sarif results/python.sarif; do
@@ -50,7 +49,6 @@ jobs:
           config: p/ci
       - name: Gate check
         if: always()
-        env:
         run: |
           REPORT=semgrep.sarif
           [ -f "$REPORT" ] || echo '{"runs":[{"results":[]}]}' > "$REPORT"

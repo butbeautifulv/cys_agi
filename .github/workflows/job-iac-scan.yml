@@ -19,7 +19,6 @@ jobs:
           output_format: sarif
           output_file_path: reports/checkov.sarif
       - name: Gate check
-        env:
         run: |
           mkdir -p reports
           [ -f reports/checkov.sarif ] || echo '{"runs":[{"results":[]}]}' > reports/checkov.sarif

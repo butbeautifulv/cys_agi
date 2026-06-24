@@ -11,6 +11,9 @@ permissions:
   pull-requests: read
 
 jobs:
-  secrets:
-    uses: ./.github/workflows/job-secret-scan.yml
+  security-gates:
+    uses: ./.github/workflows/security-gates.yml
     secrets: inherit
+    with:
+      security_policy: config/security-gate-policy-adopt.yaml
+      enable_real_linters: true

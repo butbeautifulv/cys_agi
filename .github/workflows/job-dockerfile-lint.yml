@@ -17,7 +17,6 @@ jobs:
           failure-threshold: warning
       - name: Gate check
         if: always()
-        env:
         run: |
           echo '{"runs":[{"results":[]}]}' > hadolint.sarif
           POLICY="${SECURITY_POLICY:-config/security-gate-policy-adopt.yaml}"

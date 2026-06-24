@@ -24,7 +24,6 @@ jobs:
         with:
           python-version: "3.13"
       - name: Gate check
-        env:
         run: |
           POLICY="${SECURITY_POLICY:-config/security-gate-policy-adopt.yaml}"
           python scripts/gate-check.py --control linters --report linter.sarif --policy "$POLICY"

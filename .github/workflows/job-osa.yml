@@ -29,7 +29,6 @@ jobs:
           output: osa.sarif
           exit-code: "0"
       - name: Gate check
-        env:
         run: |
           POLICY="${SECURITY_POLICY:-config/security-gate-policy-adopt.yaml}"
           python scripts/gate-check.py --control osa --report osa.sarif --policy "$POLICY"
