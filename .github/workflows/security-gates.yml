@@ -11,8 +11,8 @@ on:
       enable_real_linters:
         description: Run Ruff in linter-security job
         required: false
-        type: string
-        default: "true"
+        type: boolean
+        default: true
 
 permissions:
   contents: read

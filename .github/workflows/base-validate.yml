@@ -6,8 +6,8 @@ on:
       enable_real_linters:
         description: Run Ruff when true
         required: false
-        type: string
-        default: "false"
+        type: boolean
+        default: false
       ruff_version:
         description: Pinned Ruff version for oss-full
         required: false

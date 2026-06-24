@@ -21,7 +21,7 @@ jobs:
   validate:
     uses: ./.github/workflows/base-validate.yml
     with:
-      enable_real_linters: "false"
+      enable_real_linters: false
 
   security-gates:
     needs: [validate]

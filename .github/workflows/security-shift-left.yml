@@ -20,7 +20,7 @@ jobs:
     secrets: inherit
     with:
       security_policy: config/security-gate-policy-adopt.yaml
-      enable_real_linters: "true"
+      enable_real_linters: true
     permissions:
       contents: read
       security-events: write
