@@ -12,7 +12,4 @@ permissions:
 
 jobs:
   secrets:
-    uses: ./.github/workflows/jobs/secret-scan.yml
-    secrets: inherit
-    with:
-      security_policy: config/security-gate-policy-adopt.yaml
+    uses: ./.github/workflows/secret-scan-reusable.yml
