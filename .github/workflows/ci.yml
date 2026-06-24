@@ -14,6 +14,7 @@ permissions:
 env:
   REGISTRY: ghcr.io/${{ github.repository }}
   ENABLE_REAL_LINTERS: ${{ vars.ENABLE_REAL_LINTERS || 'false' }}
+  SECURITY_POLICY: config/security-gate-policy-adopt.yaml
 
 jobs:
   lint:
@@ -42,19 +43,35 @@ jobs:
             echo "Placeholder unit tests"
           fi
 
-  security-gates:
+  secrets:
     needs: [lint, unit-test]
-    uses: ./.github/workflows/security-gates.yml
+    uses: ./.github/workflows/jobs/secret-scan.yml
     secrets: inherit
-    permissions:
-      contents: read
-      security-events: write
-      pull-requests: read
+  sast:
+    needs: [lint, unit-test]
+    uses: ./.github/workflows/jobs/sast.yml
+    secrets: inherit
+  osa:
+    needs: [lint, unit-test]
+    uses: ./.github/workflows/jobs/osa.yml
+    secrets: inherit
+  iac:
+    needs: [lint, unit-test]
+    uses: ./.github/workflows/jobs/iac-scan.yml
+    secrets: inherit
+  dockerfile:
+    needs: [lint, unit-test]
+    uses: ./.github/workflows/jobs/dockerfile-lint.yml
+    secrets: inherit
+  linters:
+    needs: [lint, unit-test]
+    uses: ./.github/workflows/jobs/linter-security.yml
+    secrets: inherit
 
   build:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    needs: [security-gates]
+    needs: [secrets, sast, osa, iac, dockerfile, linters]
     outputs:
       image_tag: ${{ steps.meta.outputs.tag }}
     steps:
