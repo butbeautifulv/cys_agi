@@ -10,9 +10,9 @@ permissions:
   security-events: write
   pull-requests: read
 
-env:
-  SECURITY_POLICY: config/security-gate-policy-adopt.yaml
-
 jobs:
   secrets:
     uses: ./.github/workflows/jobs/secret-scan.yml
+    secrets: inherit
+    with:
+      security_policy: config/security-gate-policy-adopt.yaml
