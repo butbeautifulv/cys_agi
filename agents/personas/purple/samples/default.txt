@@ -1,0 +1,3 @@
+Post-engagement purple validation:
+Inputs: soc timeline (PowerShell + C2), network beaconing on FIN-042, identity kerberoasting indicators, hunter confirmed scheduled task persistence.
+Goal: map completed kill chain phases, detection gaps per ATT&CK technique, recommend atomic tests and D3FEND controls.

@@ -16,16 +16,15 @@ From `projects/egregore/ui` (meta-repo checkout required for `shared/gui`):
 ./scripts/vendor-gui.sh
 ```
 
-This runs, in order: rsync from `shared/gui` → `rewrite-vendor-imports.mjs` → `apply-vendor-lyra-adaptation.mjs`.
+This runs, in order: rsync from `shared/gui` → copy `gui-style-profiles.css` → `rewrite-vendor-imports.mjs`.
 
-Manual steps (if not using `vendor-gui.sh`):
+Manual import rewrite (if not using `vendor-gui.sh`):
 
 ```bash
 node scripts/rewrite-vendor-imports.mjs
-node scripts/apply-vendor-lyra-adaptation.mjs
 ```
 
-See [VENDOR_GUI_LYRA_LOG.md](VENDOR_GUI_LYRA_LOG.md) for nova→lyra rules and re-sync policy.
+See [VENDOR_GUI_LYRA_LOG.md](VENDOR_GUI_LYRA_LOG.md) for the Lyra profile (`data-gui-style="lyra"`).
 
 Override source path when needed:
 
@@ -38,9 +37,21 @@ GUI_SRC=/path/to/shared/gui/src ./scripts/vendor-gui.sh
 - `shell/`, `theme/`, `motion/`, `hooks/`, `ui/`, `layout/`
 - `utils.ts`
 
+Also copies `shared/gui/gui-style-profiles.css` → `vendor/gui-style-profiles.css`.
+
 Then `rewrite-vendor-imports.mjs` rewrites `@cxado/gui/` → `@/vendor/gui/`.
 
-`apply-vendor-lyra-adaptation.mjs` copies **radix-lyra** classes from `components/ui/` into `vendor/gui/ui/` (egregore uses `radix-lyra`; shared/gui uses `radix-nova`).
+## Style profile (Lyra)
+
+`shared/gui` uses semantic style tokens (`rounded-gui-control`, `ring-gui-focus`, …). Egregore activates **radix-lyra** via:
+
+```tsx
+<html data-gui-style="lyra">
+```
+
+and `@import "../vendor/gui-style-profiles.css"` in `app/globals.css`.
+
+No post-sync `apply-vendor-lyra-adaptation.mjs` token mapping.
 
 ## Theme / colors
 
@@ -52,7 +63,7 @@ Canonical theme is preset **`b3Rq8QejA`** (Lyra + neutral baseColor + lime theme
 npx shadcn@latest apply b3Rq8QejA --yes
 ```
 
-`app/globals.css` and `components.json` are updated by the CLI. After theme changes, re-run `node scripts/apply-vendor-lyra-adaptation.mjs`.
+`app/globals.css` and `components.json` are updated by the CLI.
 
 ## What to cherry-pick
 

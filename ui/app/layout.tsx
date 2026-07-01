@@ -20,6 +20,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      data-gui-style="lyra"
       suppressHydrationWarning
       className={cn("antialiased", fontMono.variable, "font-sans", inter.variable)}
     >

@@ -1,0 +1,20 @@
+name: cloud
+description: Cloud security threat detection
+role: worker
+output_schema: CloudFinding
+tools:
+  - query_siem_readonly
+  - playbook_search
+  - playbook_for_technique
+  - ti_search_in_category
+skills:
+  - cloud-threat-detection
+hitl_tools: {}
+trust_level: internal
+bus_recipients:
+  - critic
+  - soc
+  - identity
+  - network
+language: ru
+sample: samples/default.txt

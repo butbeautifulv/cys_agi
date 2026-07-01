@@ -35,7 +35,19 @@ class PlannerRuntime(Protocol):
 class PlanInvestigation:
     """LLM planner for manual.investigation events — produces ordered persona plan."""
 
-    AVAILABLE_PERSONAS = ["soc", "network", "compliance", "consultant", "redteam"]
+    AVAILABLE_PERSONAS = [
+        "soc",
+        "network",
+        "compliance",
+        "consultant",
+        "redteam",
+        "intel",
+        "hunter",
+        "identity",
+        "dfir",
+        "cloud",
+        "purple",
+    ]
 
     def __init__(
         self,

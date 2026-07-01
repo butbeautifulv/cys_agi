@@ -24,6 +24,8 @@ class AgentTrustLevel(int, Enum):
 ESCALATION_ONLY_PATHS: set[tuple[str, str]] = {
     ("soc", "redteam"),
     ("network", "redteam"),
+    ("intel", "redteam"),
+    ("hunter", "redteam"),
 }
 
 TRUST_MESSAGE_TYPES: dict[AgentTrustLevel, set[str]] = {

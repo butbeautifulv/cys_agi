@@ -23,10 +23,12 @@ routing:
 
 | Plan | Use case |
 |------|----------|
-| `incident-triage.yaml` | SIEM/EDR → soc; NetFlow → network (default) |
+| `incident-triage.yaml` | SIEM/EDR → soc/hunter; IAM → identity; NetFlow → network (default) |
+| `kill-chain-assessment.yaml` | TI, hunting, cloud, forensics, purple validation |
 | `compliance-audit.yaml` | Documents, scheduled audits |
 | `redteam-engagement.yaml` | High-severity escalations → redteam |
-| `full-assessment.yaml` | Manual investigation → all workers |
+| `full-assessment.yaml` | Manual investigation → all 11 workers |
+| `consultation.yaml` | Advisory requests → consultant |
 
 Загрузка: `EventRouter.from_plans_dir(agents/plans/)`.
 

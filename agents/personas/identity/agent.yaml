@@ -1,0 +1,20 @@
+name: identity
+description: Identity and access attack analysis
+role: worker
+output_schema: IdentityFinding
+tools:
+  - query_siem_readonly
+  - playbook_for_technique
+  - ti_search_in_category
+  - correlate_findings
+skills:
+  - identity-attacks
+hitl_tools: {}
+trust_level: internal
+bus_recipients:
+  - critic
+  - soc
+  - network
+  - hunter
+language: ru
+sample: samples/default.txt

@@ -43,7 +43,7 @@ dev-langfuse-fresh: langfuse-dev-setup
 	@echo "Langfuse fresh install: http://localhost:3001 (dev@egregore.local / egregore-dev)"
 
 dev-obs:
-	docker compose -f deploy/observability/docker-compose.yml up -d
+	@$(MAKE) -C ../.. cxado-up-obs
 
 # Optional — not started by `make dev`; set USE_TOOL_GATEWAY=true in .env to route worker tools via gateway
 dev-tool-gateway:

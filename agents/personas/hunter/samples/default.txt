@@ -1,0 +1,4 @@
+Hunt hypothesis: scheduled task persistence on finance workstations.
+Signals: Sysmon Event ID 1 — powershell.exe -enc from wscript parent; no corresponding SOC alert.
+EDR: same host contacted rare domain 6h earlier (network already flagged).
+Goal: validate persistence mechanism, map to ATT&CK, list detection gaps.

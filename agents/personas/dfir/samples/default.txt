@@ -1,0 +1,4 @@
+Active compromise P1 — forensics request:
+Host FIN-042 isolated. Volatility: suspicious process hollowed svchost.exe; prefetch shows powershell.exe 2h before EDR alert.
+Disk: $MFT shows new scheduled task XML in Windows\Tasks. Memory dump acquired.
+Goal: timeline, scope, containment_status, eradication_steps with forensic confidence.

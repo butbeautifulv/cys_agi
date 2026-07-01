@@ -25,6 +25,13 @@ _PERSONA_CLEARANCE: dict[str, DataClassification] = {
     "network": DataClassification.CONFIDENTIAL,
     "compliance": DataClassification.RESTRICTED,
     "redteam": DataClassification.CONFIDENTIAL,
+    "intel": DataClassification.CONFIDENTIAL,
+    "hunter": DataClassification.CONFIDENTIAL,
+    "identity": DataClassification.CONFIDENTIAL,
+    "dfir": DataClassification.RESTRICTED,
+    "cloud": DataClassification.CONFIDENTIAL,
+    "purple": DataClassification.INTERNAL,
+    "consultant": DataClassification.INTERNAL,
     "coordinator": DataClassification.RESTRICTED,
     "critic": DataClassification.INTERNAL,
 }

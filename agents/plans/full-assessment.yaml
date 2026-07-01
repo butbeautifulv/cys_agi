@@ -5,7 +5,18 @@ description: Manual investigation triggers all worker contours
 routing:
   rules:
     - event_types: [manual.investigation]
-      personas: [redteam, network, soc, compliance]
+      personas:
+        - redteam
+        - network
+        - soc
+        - compliance
+        - consultant
+        - intel
+        - hunter
+        - identity
+        - dfir
+        - cloud
+        - purple
       notify_control: true
 
 hitl:

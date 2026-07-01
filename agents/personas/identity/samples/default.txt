@@ -1,0 +1,6 @@
+IAM correlation:
+T+0: unusual LDAP queries from SRV-DC01 service account.
+T+3m: Kerberos TGS-REQ spike for SPNs (possible kerberoasting).
+T+8m: same source host — WMI lateral movement attempt to FIN-042.
+No new interactive logins; VPN session stable for user jsmith.
+Goal: map attack path, MITRE techniques, lateral movement stage.

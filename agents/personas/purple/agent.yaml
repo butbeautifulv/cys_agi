@@ -1,0 +1,18 @@
+name: purple
+description: Purple team kill chain coverage and detection gap analysis
+role: worker
+output_schema: PurpleFinding
+tools:
+  - playbook_for_technique
+  - playbook_framework
+  - correlate_findings
+  - playbook_search
+skills:
+  - kill-chain-purple
+hitl_tools: {}
+trust_level: internal
+bus_recipients:
+  - critic
+  - coordinator
+language: ru
+sample: samples/default.txt

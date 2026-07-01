@@ -1,0 +1,117 @@
+/* GUI style profiles — default radix-nova; lyra via html[data-gui-style="lyra"] */
+:root {
+  --gui-radius-control: var(--radius-lg);
+  --gui-radius-surface: var(--radius-xl);
+  --gui-radius-muted: var(--radius-md);
+  --gui-radius-pill: var(--radius-4xl);
+  --gui-radius-compact: min(var(--radius-md), 10px);
+  --gui-radius-compact-sm: min(var(--radius-md), 12px);
+  --gui-radius-checkbox: 4px;
+  --gui-ring-focus: 3px;
+  --gui-text-control-size: 1rem;
+  --gui-text-control-leading: 1.5rem;
+  --gui-text-control-size-md: 0.875rem;
+  --gui-text-control-leading-md: 1.25rem;
+  --gui-text-ui-size: 0.875rem;
+  --gui-text-ui-leading: 1.25rem;
+  --gui-text-body-size: 0.875rem;
+  --gui-text-body-leading: 1.625;
+  --gui-text-card-title-size: 1rem;
+  --gui-text-card-title-leading: 1.375;
+  --gui-primary-hover-opacity: 0.9;
+  --gui-card-footer-bg: color-mix(in oklch, var(--muted) 50%, transparent);
+}
+
+[data-gui-style="lyra"] {
+  --gui-radius-control: 0px;
+  --gui-radius-surface: 0px;
+  --gui-radius-muted: 0px;
+  --gui-radius-pill: 0px;
+  --gui-radius-compact: 0px;
+  --gui-radius-compact-sm: 0px;
+  --gui-radius-checkbox: 0px;
+  --gui-ring-focus: 1px;
+  --gui-text-control-size: 0.75rem;
+  --gui-text-control-leading: 1rem;
+  --gui-text-control-size-md: 0.75rem;
+  --gui-text-control-leading-md: 1rem;
+  --gui-text-ui-size: 0.75rem;
+  --gui-text-ui-leading: 1rem;
+  --gui-text-body-size: 0.75rem;
+  --gui-text-body-leading: 1.625;
+  --gui-text-card-title-size: 0.875rem;
+  --gui-text-card-title-leading: 1.25rem;
+  --gui-primary-hover-opacity: 0.8;
+  --gui-card-footer-bg: transparent;
+}
+
+@utility rounded-gui-control {
+  border-radius: var(--gui-radius-control);
+}
+
+@utility rounded-gui-surface {
+  border-radius: var(--gui-radius-surface);
+}
+
+@utility rounded-t-gui-surface {
+  border-top-left-radius: var(--gui-radius-surface);
+  border-top-right-radius: var(--gui-radius-surface);
+}
+
+@utility rounded-b-gui-surface {
+  border-bottom-left-radius: var(--gui-radius-surface);
+  border-bottom-right-radius: var(--gui-radius-surface);
+}
+
+@utility rounded-gui-muted {
+  border-radius: var(--gui-radius-muted);
+}
+
+@utility rounded-gui-pill {
+  border-radius: var(--gui-radius-pill);
+}
+
+@utility rounded-gui-compact {
+  border-radius: var(--gui-radius-compact);
+}
+
+@utility rounded-gui-compact-sm {
+  border-radius: var(--gui-radius-compact-sm);
+}
+
+@utility rounded-gui-checkbox {
+  border-radius: var(--gui-radius-checkbox);
+}
+
+@utility ring-gui-focus {
+  --tw-ring-width: var(--gui-ring-focus);
+}
+
+@utility text-gui-control {
+  font-size: var(--gui-text-control-size);
+  line-height: var(--gui-text-control-leading);
+
+  @media (width >= 48rem) {
+    font-size: var(--gui-text-control-size-md);
+    line-height: var(--gui-text-control-leading-md);
+  }
+}
+
+@utility text-gui-ui {
+  font-size: var(--gui-text-ui-size);
+  line-height: var(--gui-text-ui-leading);
+}
+
+@utility text-gui-body {
+  font-size: var(--gui-text-body-size);
+  line-height: var(--gui-text-body-leading);
+}
+
+@utility text-gui-card-title {
+  font-size: var(--gui-text-card-title-size);
+  line-height: var(--gui-text-card-title-leading);
+}
+
+@utility bg-gui-card-footer {
+  background-color: var(--gui-card-footer-bg);
+}

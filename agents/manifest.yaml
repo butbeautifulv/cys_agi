@@ -9,7 +9,18 @@ layout:
   skills: skills/           # on-demand domain knowledge modules
 
 personas:
-  workers: [redteam, network, soc, compliance, consultant]
+  workers:
+    - redteam
+    - network
+    - soc
+    - compliance
+    - consultant
+    - intel
+    - hunter
+    - identity
+    - dfir
+    - cloud
+    - purple
   control: [critic, coordinator]
 
 default_plan: incident-triage
@@ -30,6 +41,9 @@ plans:
   - id: consultation
     file: plans/consultation.yaml
     description: Advisory consultation — consultant worker
+  - id: kill-chain-assessment
+    file: plans/kill-chain-assessment.yaml
+    description: Kill-chain aligned worker routing
 
 skills:
   - ai-agent-security
@@ -40,3 +54,9 @@ skills:
   - rag-security
   - secure-deployment
   - skill-supply-chain
+  - threat-intel-osint
+  - endpoint-hunting
+  - identity-attacks
+  - digital-forensics
+  - cloud-threat-detection
+  - kill-chain-purple

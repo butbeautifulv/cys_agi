@@ -1,0 +1,21 @@
+name: intel
+description: Threat intelligence and reconnaissance analysis
+role: worker
+output_schema: IntelFinding
+tools:
+  - ti_search_in_category
+  - playbook_search
+  - playbook_get
+  - enrich_ioc
+  - rag_query
+skills:
+  - threat-intel-osint
+hitl_tools: {}
+trust_level: internal
+bus_recipients:
+  - critic
+  - soc
+  - hunter
+  - redteam
+language: ru
+sample: samples/default.txt

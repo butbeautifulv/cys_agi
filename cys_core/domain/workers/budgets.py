@@ -16,6 +16,13 @@ PERSONA_BUDGETS: dict[str, PersonaBudget] = {
     "network": PersonaBudget(max_tokens=50_000, max_cost_usd=2.0),
     "compliance": PersonaBudget(max_tokens=40_000, max_cost_usd=1.5),
     "redteam": PersonaBudget(max_tokens=80_000, max_cost_usd=5.0),
+    "intel": PersonaBudget(max_tokens=45_000, max_cost_usd=2.0),
+    "hunter": PersonaBudget(max_tokens=55_000, max_cost_usd=2.5),
+    "identity": PersonaBudget(max_tokens=50_000, max_cost_usd=2.0),
+    "dfir": PersonaBudget(max_tokens=60_000, max_cost_usd=3.0),
+    "cloud": PersonaBudget(max_tokens=50_000, max_cost_usd=2.0),
+    "purple": PersonaBudget(max_tokens=45_000, max_cost_usd=1.5),
+    "consultant": PersonaBudget(max_tokens=35_000, max_cost_usd=1.0),
 }
 
 DEFAULT_BUDGET = PersonaBudget(max_tokens=40_000, max_cost_usd=2.0)

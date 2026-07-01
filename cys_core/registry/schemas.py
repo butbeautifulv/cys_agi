@@ -3,10 +3,16 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from cys_core.domain.findings.models import (
+    CloudFinding,
     ComplianceFinding,
     ConsultantFinding,
     CriticResult,
+    DfirFinding,
+    HunterFinding,
+    IdentityFinding,
+    IntelFinding,
     NetworkFinding,
+    PurpleFinding,
     RedTeamFinding,
     SocFinding,
 )
@@ -17,6 +23,12 @@ _SCHEMAS: dict[str, type[BaseModel]] = {
     "SocFinding": SocFinding,
     "ComplianceFinding": ComplianceFinding,
     "ConsultantFinding": ConsultantFinding,
+    "IntelFinding": IntelFinding,
+    "HunterFinding": HunterFinding,
+    "IdentityFinding": IdentityFinding,
+    "DfirFinding": DfirFinding,
+    "CloudFinding": CloudFinding,
+    "PurpleFinding": PurpleFinding,
     "CriticResult": CriticResult,
 }
 

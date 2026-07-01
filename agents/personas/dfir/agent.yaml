@@ -1,0 +1,19 @@
+name: dfir
+description: Digital forensics and incident response
+role: worker
+output_schema: DfirFinding
+tools:
+  - build_timeline
+  - playbook_procedure
+  - playbook_get
+  - rag_query
+skills:
+  - digital-forensics
+hitl_tools: {}
+trust_level: privileged
+bus_recipients:
+  - critic
+  - soc
+  - coordinator
+language: ru
+sample: samples/default.txt

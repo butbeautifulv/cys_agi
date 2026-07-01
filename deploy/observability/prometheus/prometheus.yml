@@ -2,18 +2,16 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    cluster: egregore-dev
+    cluster: cxado-dev
     env: dev
 
 scrape_configs:
-  # Self-monitoring
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
         labels:
           service: prometheus
 
-  # egregore API (ingress, worker metrics when jobs run in-process)
   - job_name: egregore-api
     metrics_path: /metrics
     scrape_interval: 15s
@@ -22,9 +20,9 @@ scrape_configs:
       - targets: ["host.docker.internal:8080"]
         labels:
           service: egregore-api
+          platform: egregore
           component: ingress
 
-  # MCP Tool Gateway (optional — start with: uv run egregore tool-gateway)
   - job_name: egregore-tool-gateway
     metrics_path: /metrics
     scrape_interval: 15s
@@ -33,9 +31,31 @@ scrape_configs:
       - targets: ["host.docker.internal:8092"]
         labels:
           service: egregore-tool-gateway
+          platform: egregore
           component: gateway
 
-  # Tempo trace backend (in-compose)
+  - job_name: veil-api
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ["host.docker.internal:8090"]
+        labels:
+          service: veil-api
+          platform: veil
+          component: graph-api
+
+  - job_name: veil-mcp
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ["host.docker.internal:8091"]
+        labels:
+          service: veil-mcp
+          platform: veil
+          component: mcp
+
   - job_name: tempo
     metrics_path: /metrics
     static_configs:
@@ -44,7 +64,6 @@ scrape_configs:
           service: tempo
           component: tracing
 
-  # Grafana (in-compose)
   - job_name: grafana
     metrics_path: /metrics
     static_configs:

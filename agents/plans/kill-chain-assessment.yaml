@@ -1,0 +1,26 @@
+id: kill-chain-assessment
+name: Kill chain assessment
+description: Event-driven routing for kill-chain aligned worker personas
+
+routing:
+  rules:
+    - event_types: [ti.feed, osint.report]
+      personas: [intel]
+      notify_control: true
+    - event_types: [hunt.hypothesis, edr.alert]
+      min_severity: medium
+      personas: [hunter, soc]
+      notify_control: true
+    - event_types: [iam.event, ad.alert]
+      personas: [identity]
+      notify_control: true
+    - event_types: [cloud.audit, cloud.alert]
+      personas: [cloud]
+      notify_control: true
+    - event_types: [incident.forensics, escalation]
+      min_severity: high
+      personas: [dfir, soc]
+      notify_control: true
+    - event_types: [purple.validation, assessment.complete]
+      personas: [purple]
+      notify_control: true

@@ -1,0 +1,20 @@
+name: hunter
+description: Proactive threat hunting for persistence and evasion
+role: worker
+output_schema: HunterFinding
+tools:
+  - query_siem_readonly
+  - playbook_for_technique
+  - playbook_search
+  - correlate_findings
+  - build_timeline
+skills:
+  - endpoint-hunting
+hitl_tools: {}
+trust_level: internal
+bus_recipients:
+  - critic
+  - soc
+  - purple
+language: ru
+sample: samples/default.txt

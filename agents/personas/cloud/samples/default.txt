@@ -1,0 +1,5 @@
+Cloud audit alert (AWS):
+CloudTrail: ListBucket + GetObject burst from new access key AKIA*** on prod-data-archive.
+Source IP: Tor exit node (enriched). No corresponding console login.
+S3 bucket policy allows public read on /backups/ — likely misconfig predating incident.
+Goal: assess blast radius, exfil scope, remediation priority.

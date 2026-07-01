@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEFAULT_GUI_SRC="$ROOT/../../../shared/gui/src"
+GUI_PKG_ROOT="$ROOT/../../../shared/gui"
 GUI_SRC="${GUI_SRC:-$DEFAULT_GUI_SRC}"
 
 if [[ ! -d "$GUI_SRC" ]]; then
@@ -23,7 +24,11 @@ for file in "${FILES[@]}"; do
   cp "$GUI_SRC/$file" "$VENDOR/$file"
 done
 
+STYLE_PROFILES="${GUI_PKG_ROOT}/gui-style-profiles.css"
+if [[ -f "$STYLE_PROFILES" ]]; then
+  cp "$STYLE_PROFILES" "$ROOT/vendor/gui-style-profiles.css"
+fi
+
 echo "Vendored gui from $GUI_SRC -> $VENDOR"
-echo "Rewriting imports and applying radix-lyra adaptation…"
+echo "Rewriting imports…"
 node "$ROOT/scripts/rewrite-vendor-imports.mjs"
-node "$ROOT/scripts/apply-vendor-lyra-adaptation.mjs"

@@ -8,6 +8,13 @@ routing:
       min_severity: low
       personas: [soc]
       notify_control: true
+    - event_types: [edr.alert]
+      min_severity: medium
+      personas: [hunter, soc]
+      notify_control: true
+    - event_types: [iam.event, ad.alert]
+      personas: [identity, soc]
+      notify_control: true
     - event_types: [netflow.beacon, dns.anomaly]
       personas: [network]
       notify_control: true

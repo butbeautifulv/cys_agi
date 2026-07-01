@@ -44,15 +44,27 @@ start_supervised() {
   SUPERVISOR_PIDS+=("$!")
 }
 
+port_listening() {
+  local port="$1"
+  ss -ltn 2>/dev/null | grep -q ":${port} " || netstat -ltn 2>/dev/null | grep -q ":${port} "
+}
+
 echo "Starting infrastructure (docker compose)..."
-docker compose up -d postgres redis qdrant
+if port_listening 5432 && port_listening 6379 && port_listening 6333; then
+  echo "[dev] postgres/redis/qdrant already listening — using existing infra (e.g. make cxado-up)"
+else
+  docker compose up -d postgres redis qdrant
+fi
 
 wait_for_postgres() {
   local host="${POSTGRES_HOST:-localhost}"
   local port="${POSTGRES_PORT:-5432}"
   local user="${POSTGRES_USER:-postgres}"
   local tries=0
-  until docker compose exec -T postgres pg_isready -U "$user" -h localhost -p 5432 >/dev/null 2>&1; do
+  until (
+    command -v pg_isready >/dev/null 2>&1 && pg_isready -h "$host" -p "$port" -U "$user" >/dev/null 2>&1
+  ) || docker exec cxado-egregore-postgres-1 pg_isready -U "$user" -h localhost -p 5432 >/dev/null 2>&1 || \
+     docker compose exec -T postgres pg_isready -U "$user" -h localhost -p 5432 >/dev/null 2>&1; do
     tries=$((tries + 1))
     if [[ $tries -ge 30 ]]; then
       echo "[dev] WARN: postgres not healthy after 60s — API may fail until DB is up"
@@ -66,7 +78,10 @@ wait_for_postgres() {
 wait_for_redis() {
   local password="${REDIS_PASSWORD:-password}"
   local tries=0
-  until docker compose exec -T redis redis-cli -a "$password" ping 2>/dev/null | grep -q PONG; do
+  until (
+    command -v redis-cli >/dev/null 2>&1 && redis-cli -h localhost -p 6379 -a "$password" ping 2>/dev/null | grep -q PONG
+  ) || docker exec cxado-egregore-redis-1 redis-cli -a "$password" ping 2>/dev/null | grep -q PONG || \
+     docker compose exec -T redis redis-cli -a "$password" ping 2>/dev/null | grep -q PONG; do
     tries=$((tries + 1))
     if [[ $tries -ge 30 ]]; then
       echo "[dev] WARN: redis not healthy after 60s — job queue may fail until Redis is up"

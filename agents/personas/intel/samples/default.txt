@@ -1,0 +1,5 @@
+TI feed enrichment:
+New campaign indicators linked to FIN7-style phishing.
+IOCs: 3 domains (.xyz), 2 IP addresses, 1 document hash (macro-enabled).
+OSINT: certificate transparency shows typosquat of internal brand name.
+No exploitation observed in tenant yet. Request mapping to ATT&CK and actor profile.
