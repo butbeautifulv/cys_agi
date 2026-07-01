@@ -64,7 +64,11 @@ async def test_runtime_create_run_invoke_and_deep_agent_tool(monkeypatch):
     assert captured["tools"][-1] == "async-extra"
 
     monkeypatch.setattr(runtime, "create", lambda loaded_defn, session_id, **_kwargs: SimpleNamespace(agent=True))
-    monkeypatch.setattr(runtime, "_invoke", lambda agent, text, session_id, schema: {"sid": session_id, "text": text})
+    monkeypatch.setattr(
+        runtime,
+        "_invoke",
+        lambda agent, text, session_id, schema, **_kwargs: {"sid": session_id, "text": text},
+    )
     assert runtime.run("alpha", "input", session_id="custom") == {"sid": "custom", "text": "input"}
     assert runtime.run("alpha", "input")["sid"] == "agent-alpha"
 

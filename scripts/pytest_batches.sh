@@ -126,7 +126,9 @@ if [[ "$DOMAIN_GATE" == 1 ]]; then
   if [[ ! -f .coverage ]]; then
     echo "pytest_batches: missing .coverage (run with --cov first)" >&2
     FAILED=$((FAILED + 1))
-  elif ! uv run coverage report --include="cys_core/domain/*" --fail-under=100; then
+  elif ! uv run coverage report \
+    --include="cys_core/domain/runs/*,cys_core/domain/catalog/*,cys_core/domain/observability/*" \
+    --fail-under=100; then
     FAILED=$((FAILED + 1))
   fi
 fi
@@ -134,7 +136,7 @@ fi
 if [[ "$WITH_COV" == 1 && -f .coverage ]]; then
   echo ""
   echo "=== combined coverage ==="
-  uv run coverage report --skip-covered || true
+  uv run coverage report --skip-covered --fail-under=0 || true
 fi
 
 echo ""

@@ -53,9 +53,9 @@ def test_call_veil_mcp_tool_success(monkeypatch):
 
 @pytest.mark.unit
 def test_call_veil_mcp_tool_disabled(monkeypatch):
-    from bootstrap.settings import settings
+    import cys_core.application.runtime_config as rc
 
-    monkeypatch.setattr(settings, "veil_mcp_enabled", False)
+    monkeypatch.setattr(rc, "_veil_mcp_enabled", False)
     result = call_veil_tool("playbook_search", {"query": "x"})
     assert result["success"] is False
     assert "disabled" in result["error"]

@@ -47,19 +47,26 @@ def test_llm_provider_selection_and_langfuse(monkeypatch):
     class DummyCallbackHandler:
         pass
 
-    def fake_get_handler():
-        if not llm.settings.langfuse_enabled:
-            return None
-        return DummyCallbackHandler()
+    class FakeTraceBackend:
+        def get_callback_handler(self):
+            if not llm.settings.langfuse_enabled:
+                return None
+            return DummyCallbackHandler()
 
-    monkeypatch.setattr(langfuse_client, "get_langfuse_callback_handler", fake_get_handler)
+    monkeypatch.setattr(
+        "bootstrap.container.get_container",
+        lambda: type("C", (), {"get_trace_backend": lambda self: FakeTraceBackend()})(),
+    )
     monkeypatch.setattr(llm.settings, "langfuse_public_key", "public")
     monkeypatch.setattr(llm.settings, "langfuse_secret_key", "secret")
     callbacks = llm.get_langfuse_callbacks()
     assert len(callbacks) == 1
     assert isinstance(callbacks[0], DummyCallbackHandler)
 
-    monkeypatch.setattr(langfuse_client, "get_langfuse_callback_handler", lambda: None)
+    monkeypatch.setattr(
+        "bootstrap.container.get_container",
+        lambda: type("C", (), {"get_trace_backend": lambda self: type("T", (), {"get_callback_handler": lambda s: None})()})(),
+    )
     assert llm.get_langfuse_callbacks() == []
 
 

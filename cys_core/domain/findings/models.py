@@ -26,6 +26,7 @@ WorkerAgentName = Literal[
     "dfir",
     "cloud",
     "purple",
+    "conductor",
     "critic",
 ]
 
@@ -152,6 +153,14 @@ class PurpleFinding(KillChainFields):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     summary: str = ""
     ttl: str = ""
+
+
+class ConductorStepResult(BaseModel):
+    reply: str = ""
+    plan_delta: dict[str, Any] = Field(default_factory=dict)
+    spawn_requests: list[dict[str, Any]] = Field(default_factory=list)
+    mode_recommendation: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class CriticResult(BaseModel):

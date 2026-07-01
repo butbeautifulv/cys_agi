@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: egregore-api
+  labels:
+    app: egregore-api
+    {{- include "egregore.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      app: egregore-api
+  template:
+    metadata:
+      labels:
+        app: egregore-api
+    spec:
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["uv", "run", "egregore", "serve", "--host", "0.0.0.0", "--port", "8080"]
+          ports:
+            - containerPort: {{ .Values.api.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "egregore.fullname" . }}-env
+            - secretRef:
+                name: {{ include "egregore.fullname" . }}-secrets
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.api.port }}
+            initialDelaySeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.api.port }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egregore-api
+spec:
+  selector:
+    app: egregore-api
+  ports:
+    - port: {{ .Values.api.port }}
+      targetPort: {{ .Values.api.port }}

@@ -56,10 +56,17 @@ def _load_agent_from_dir(agent_dir: Path, product: ProductContext) -> AgentDefin
     _, body = _parse_prompt_md(prompt_path)
     sample_path = agent_dir / config.sample
     sample_input = sample_path.read_text(encoding="utf-8").strip() if sample_path.exists() else None
-    persona = body
+    from bootstrap.container import get_container
+    from cys_core.domain.observability.models import PromptRef
+
+    resolved = get_container().get_prompt_resolver().resolve(
+        PromptRef(name=config.name),
+        fallback_text=body,
+    )
+    persona_text = resolved.text if resolved else body
     if config.language == "ru":
-        persona = f"{body}{LANGUAGE_SUFFIX}"
-    system_ctx = product.build_system_context(persona)
+        persona_text = f"{persona_text}{LANGUAGE_SUFFIX}"
+    system_ctx = product.build_system_context(persona_text)
     return AgentDefinition(
         name=config.name,
         description=config.description,

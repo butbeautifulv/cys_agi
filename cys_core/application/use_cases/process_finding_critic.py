@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any, Awaitable, Protocol
 
 from cys_core.application.ports.memory import InvestigationStateStore
+from cys_core.application.ports.observability.judge_backend import JudgeBackendPort
 from cys_core.domain.memory.services import MemoryWriteService
 from cys_core.domain.security.guardrails import OutputGuardrails
 
@@ -30,6 +31,7 @@ class ProcessFindingCritic:
         investigation_store: InvestigationStateStore | None = None,
         record_memory_write: Callable[[str, str], None] | None = None,
         enqueue_revision: Callable[[dict[str, Any], str], Awaitable[None]] | None = None,
+        judge_backend: JudgeBackendPort | None = None,
     ) -> None:
         self.guardrails = guardrails
         self.store = store
@@ -40,6 +42,7 @@ class ProcessFindingCritic:
         self.investigation_store = investigation_store
         self.record_memory_write = record_memory_write
         self.enqueue_revision = enqueue_revision
+        self.judge_backend = judge_backend
 
     def _trust_score(self, payload: dict[str, Any]) -> float:
         data = payload.get("data", payload)
@@ -93,6 +96,20 @@ class ProcessFindingCritic:
         issues: list[str] = []
         if trust_score < self.trust_score_threshold:
             issues.append("low_trust_score")
+        if self.judge_backend is not None:
+            from cys_core.domain.observability.models import JudgeRequest, PromptRef
+
+            data = payload.get("data", payload)
+            judge_result = self.judge_backend.judge(
+                JudgeRequest(
+                    rubric_ref=PromptRef(name="critic"),
+                    input_text=str(payload.get("event_id", "")),
+                    output_text=str(data),
+                )
+            )
+            if judge_result.score < self.trust_score_threshold:
+                issues.append("llm_judge_low_score")
+            trust_score = min(trust_score, judge_result.score)
         data = payload.get("data", {})
         feedback = {
             "sender": envelope.get("sender"),

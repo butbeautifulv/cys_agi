@@ -60,6 +60,32 @@ class Container:
 
         return get_investigation_state_store(settings=self.settings)
 
+    def get_trace_backend(self):
+        from bootstrap.observability_factory import build_trace_backend, resolve_trace_backend_name
+
+        return build_trace_backend(resolve_trace_backend_name(self.settings), cfg=self.settings)
+
+    def get_prompt_backend(self):
+        from bootstrap.observability_factory import build_prompt_backend
+
+        return build_prompt_backend(self.settings.obs_prompt_backend)
+
+    def get_judge_backend(self):
+        from bootstrap.observability_factory import build_judge_backend
+
+        name = "langfuse" if self.settings.critic_use_llm_judge else self.settings.obs_judge_backend
+        return build_judge_backend(name)
+
+    def get_eval_backend(self):
+        from bootstrap.observability_factory import build_eval_backend
+
+        return build_eval_backend(self.settings.obs_eval_backend)
+
+    def get_prompt_resolver(self):
+        from cys_core.application.observability.prompt_resolver import PromptResolver
+
+        return PromptResolver(self.get_prompt_backend())
+
     def get_token_verifier(self):
         from cys_core.infrastructure.auth.factory import build_token_verifier
 
@@ -98,10 +124,47 @@ class Container:
 
         configure_tool_backend(_GatewayToolBackend())
 
+    def wire_bus_reload(self) -> None:
+        from cys_core.infrastructure.catalog.hybrid_registry import register_bus_reload_callback
+        from interfaces.worker.orchestrator import build_agent_bus
+
+        register_bus_reload_callback(build_agent_bus)
+
+    def wire_agent_definitions_loader(self) -> None:
+        from bootstrap.agent_definitions_loader import get_default_agent_definitions_loader
+        from bootstrap.catalog_loader import entry_to_definition
+        from bootstrap.otel_wiring import wire_otel
+        from cys_core.application.ports.persistence_provider import configure_persistence_providers
+        from cys_core.application.ports.trace_callbacks import configure_trace_callbacks
+        from cys_core.application.runtime_config import configure_from_settings
+        from cys_core.infrastructure.catalog.hybrid_registry import (
+            register_definitions_loader,
+            register_entry_to_definition,
+        )
+        from cys_core.observability.langfuse_client import configure_trace_backend_factory
+        from cys_core.registry.agents import configure_agent_definitions_loader
+
+        configure_from_settings(self.settings)
+        wire_otel()
+        configure_persistence_providers(self.get_persistence_context, self.get_async_persistence_context)
+
+        def _trace_callbacks():
+            handler = self.get_trace_backend().get_callback_handler()
+            return [handler] if handler is not None else []
+
+        configure_trace_callbacks(_trace_callbacks)
+        configure_trace_backend_factory(self.get_trace_backend)
+        register_entry_to_definition(entry_to_definition)
+        loader = get_default_agent_definitions_loader()
+        configure_agent_definitions_loader(loader)
+        register_definitions_loader(loader)
+
 
 @lru_cache
 def get_container() -> Container:
     container = Container()
     container.wire_hitl_pause()
     container.wire_tool_backend()
+    container.wire_agent_definitions_loader()
+    container.wire_bus_reload()
     return container

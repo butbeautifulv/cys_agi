@@ -3,8 +3,16 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from bootstrap.product_loader import load_agent_definitions
+from cys_core.application.runtime_config import get_use_dynamic_catalog
+from cys_core.application.ports.agent_definitions import AgentDefinitionsLoaderPort
 from cys_core.domain.agents.models import AgentDefinition
+
+_loader: AgentDefinitionsLoaderPort | None = None
+
+
+def configure_agent_definitions_loader(loader: AgentDefinitionsLoaderPort) -> None:
+    global _loader
+    _loader = loader
 
 
 class AgentRegistry:
@@ -12,8 +20,26 @@ class AgentRegistry:
         self._agents = agents
 
     @classmethod
-    def load(cls, root: Path | None = None) -> AgentRegistry:
-        return cls(load_agent_definitions(root))
+    def load(
+        cls,
+        root: Path | None = None,
+        loader: AgentDefinitionsLoaderPort | None = None,
+    ) -> AgentRegistry:
+        if get_use_dynamic_catalog():
+            from cys_core.infrastructure.catalog.hybrid_registry import load_hybrid_registry
+
+            return load_hybrid_registry(root)
+        definitions_loader = loader or _loader
+        if definitions_loader is None:
+            raise RuntimeError("Agent definitions loader not configured")
+        return cls(definitions_loader.load(root))
+
+    def reload(self) -> None:
+        """Reload agents from catalog + filesystem."""
+        from cys_core.infrastructure.catalog.hybrid_registry import reload_agent_registry
+
+        refreshed = reload_agent_registry()
+        self._agents = refreshed._agents
 
     def get(self, name: str) -> AgentDefinition:
         if name not in self._agents:

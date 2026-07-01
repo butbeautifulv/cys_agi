@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from cys_core.domain.findings.models import (
     CloudFinding,
     ComplianceFinding,
+    ConductorStepResult,
     ConsultantFinding,
     CriticResult,
     DfirFinding,
@@ -29,6 +30,7 @@ _SCHEMAS: dict[str, type[BaseModel]] = {
     "DfirFinding": DfirFinding,
     "CloudFinding": CloudFinding,
     "PurpleFinding": PurpleFinding,
+    "ConductorStepResult": ConductorStepResult,
     "CriticResult": CriticResult,
 }
 

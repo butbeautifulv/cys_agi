@@ -30,9 +30,9 @@ ESCALATION_ONLY_PATHS: set[tuple[str, str]] = {
 
 TRUST_MESSAGE_TYPES: dict[AgentTrustLevel, set[str]] = {
     AgentTrustLevel.UNTRUSTED: {"finding", "query"},
-    AgentTrustLevel.INTERNAL: {"finding", "query", "correlation", "escalation"},
-    AgentTrustLevel.PRIVILEGED: {"finding", "query", "correlation", "escalation"},
-    AgentTrustLevel.SYSTEM: {"finding", "query", "correlation", "escalation", "control"},
+    AgentTrustLevel.INTERNAL: {"finding", "query", "correlation", "escalation", "spawn_worker", "spawn_result", "todo_update"},
+    AgentTrustLevel.PRIVILEGED: {"finding", "query", "correlation", "escalation", "spawn_worker", "spawn_result", "todo_update"},
+    AgentTrustLevel.SYSTEM: {"finding", "query", "correlation", "escalation", "control", "spawn_worker", "spawn_result", "todo_update"},
 }
 
 

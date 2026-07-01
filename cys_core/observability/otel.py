@@ -1,45 +1,34 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
-
-from bootstrap.settings import get_settings
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
-_configured = False
+_instrumented = False
+_otel_setup: Callable[[str], None] | None = None
+_otel_enabled: Callable[[], bool] = lambda: False
+
+
+def configure_otel(*, enabled: Callable[[], bool], setup: Callable[[str], None]) -> None:
+    global _otel_enabled, _otel_setup
+    _otel_enabled = enabled
+    _otel_setup = setup
 
 
 def setup_otel(*, service_name: str = "egregore-api") -> None:
-    """Configure OTLP trace export when OTEL_ENABLED=true."""
-    global _configured
-    settings = get_settings()
-    if not settings.otel_enabled or _configured:
+    """Ensure OTel trace backend is initialized when enabled."""
+    if not _otel_enabled():
         return
-
-    try:
-        from opentelemetry import trace
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-        from opentelemetry.sdk.resources import Resource
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    except ImportError as exc:
-        logger.warning("OpenTelemetry packages missing; tracing disabled: %s", exc)
+    if _otel_setup is None:
+        logger.warning("OTel setup not configured")
         return
-
-    resource = Resource.create({"service.name": service_name})
-    provider = TracerProvider(resource=resource)
-    exporter = OTLPSpanExporter(
-        endpoint=settings.otel_exporter_endpoint,
-        insecure=True,
-    )
-    provider.add_span_processor(BatchSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)
-    _configured = True
-    logger.info("OpenTelemetry tracing enabled → %s", settings.otel_exporter_endpoint)
+    _otel_setup(service_name)
+    logger.info("OpenTelemetry trace backend initialized for %s", service_name)
 
 
 def instrument_fastapi(app: Any) -> None:
-    if not get_settings().otel_enabled:
+    global _instrumented
+    if not _otel_enabled() or _instrumented:
         return
     try:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -47,3 +36,4 @@ def instrument_fastapi(app: Any) -> None:
         logger.warning("FastAPI OTel instrumentation unavailable: %s", exc)
         return
     FastAPIInstrumentor.instrument_app(app)
+    _instrumented = True

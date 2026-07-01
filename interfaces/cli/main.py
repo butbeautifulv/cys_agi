@@ -7,7 +7,7 @@ import json
 import sys
 
 from bootstrap.settings import settings
-from cys_core.observability.langfuse_client import flush_langfuse
+from bootstrap.container import get_container
 from cys_core.registry.agents import get_agent_registry
 from cys_core.runtime.agent import get_runtime
 
@@ -48,7 +48,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
             max_jobs=args.max_jobs if args.max_jobs > 0 else None,
             idle_timeout=idle_timeout,
         )
-        flush_langfuse()
+        get_container().get_trace_backend().flush()
         print(json.dumps({"persona": args.persona, "processed": processed}, indent=2))
         return 0
 
@@ -68,7 +68,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
         return {"processed": len(results), "results": results}
 
     out = asyncio.run(_run())
-    flush_langfuse()
+    get_container().get_trace_backend().flush()
     print(json.dumps(out, indent=2, ensure_ascii=False))
     return 0
 
@@ -147,7 +147,7 @@ def cmd_agent(args: argparse.Namespace) -> int:
     defn = registry.get(args.name)
     user_input = args.input or defn.sample_input or ""
     result = runtime.run(args.name, user_input, session_id=f"agent-{args.name}")
-    flush_langfuse()
+    get_container().get_trace_backend().flush()
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
@@ -156,6 +156,18 @@ def cmd_adversarial_test(_args: argparse.Namespace) -> int:
     import pytest
 
     return pytest.main(["-q", "tests"])
+
+
+def cmd_catalog_seed(_args: argparse.Namespace) -> int:
+    from bootstrap.catalog_loader import load_profile_pack
+    from cys_core.infrastructure.catalog.hybrid_registry import get_agent_catalog, reload_agent_registry
+
+    profile, entries = load_profile_pack()
+    catalog = get_agent_catalog()
+    catalog.seed(entries, profile)
+    reload_agent_registry()
+    print(json.dumps({"profile": profile.model_dump(), "seeded": len(entries)}, indent=2, ensure_ascii=False))
+    return 0
 
 
 def cmd_migrate(_args: argparse.Namespace) -> int:
@@ -263,6 +275,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     migrate = sub.add_parser("migrate", help="Apply SQL migrations to Postgres")
     migrate.set_defaults(func=cmd_migrate)
+
+    catalog = sub.add_parser("catalog", help="Catalog operations")
+    catalog_sub = catalog.add_subparsers(dest="catalog_cmd", required=True)
+    catalog_seed = catalog_sub.add_parser("seed", help="Seed catalog from agents/ profile pack")
+    catalog_seed.set_defaults(func=cmd_catalog_seed)
 
     return parser
 

@@ -13,10 +13,9 @@ from cys_core.domain.events.router import EventRouter
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_manual_investigation_uses_planner_not_yaml_router(monkeypatch):
-    monkeypatch.setattr(
-        "cys_core.application.use_cases.dispatch_event.settings.manual_investigation_async",
-        False,
-    )
+    import cys_core.application.runtime_config as rc
+
+    monkeypatch.setattr(rc, "_manual_investigation_async", False)
     enqueued: list[tuple[str, list[str]]] = []
 
     class Enqueuer:
@@ -60,10 +59,9 @@ async def test_manual_investigation_uses_planner_not_yaml_router(monkeypatch):
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_manual_investigation_async_defers_planner(monkeypatch):
-    monkeypatch.setattr(
-        "cys_core.application.use_cases.dispatch_event.settings.manual_investigation_async",
-        True,
-    )
+    import cys_core.application.runtime_config as rc
+
+    monkeypatch.setattr(rc, "_manual_investigation_async", True)
     begun: list[str] = []
 
     class Enqueuer:

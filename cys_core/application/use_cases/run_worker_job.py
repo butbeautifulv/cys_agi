@@ -4,9 +4,7 @@ import json
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from bootstrap.settings import settings
-
-from cys_core.application.ports.agent_runner import AgentRunner
+from cys_core.application.runtime_config import get_stage
 from cys_core.application.ports.bus import AgentTransportConnector
 from cys_core.application.ports.job_queue import JobQueueConnector
 from cys_core.application.ports.memory import InvestigationStateStore
@@ -86,8 +84,14 @@ class RunWorkerJob:
         investigation_id = job.correlation_id or job.event_id
         self.investigation_store.mark_persona_done(job.tenant_id, investigation_id, job.persona)
 
+    def _memory_investigation_id(self, job: WorkerJob) -> str:
+        parent_key = job.payload.get("parent_correlation_key")
+        if parent_key:
+            return str(parent_key)
+        return job.correlation_id or job.event_id
+
     def _investigation_context(self, job: WorkerJob) -> dict[str, Any]:
-        investigation_id = job.correlation_id or job.event_id
+        investigation_id = self._memory_investigation_id(job)
         context: dict[str, Any] = {"investigation_id": investigation_id, "tenant_id": job.tenant_id}
         if self.investigation_store is not None:
             state = self.investigation_store.get(job.tenant_id, investigation_id)
@@ -133,7 +137,7 @@ class RunWorkerJob:
         job_state: dict[str, str],
     ) -> RunResult:
         run_id = job.job_id
-        investigation_id = job.correlation_id or job.event_id
+        investigation_id = self._memory_investigation_id(job)
         try:
             creds = await self.sandbox.acreate(run_id, job.persona)
             job.sandbox_id = creds.sandbox_id
@@ -190,7 +194,7 @@ class RunWorkerJob:
                     validated = self.guardrails.validate_schema(result, schema)
                     result = validated.model_dump()
                 except SecurityViolation:
-                    if settings.stage == "dev":
+                    if get_stage() == "dev":
                         pass
                     else:
                         raise

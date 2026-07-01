@@ -53,8 +53,13 @@ def analyze_workflow(workflow_yaml: str) -> str:
 @tool
 def run_active_scan(target: str) -> str:
     """Run active security scan on authorized target. Requires HITL approval."""
+    from cys_core.integrations.veneno_mcp_client import call_veneno_mcp_tool, veneno_mcp_enabled
+
+    if veneno_mcp_enabled():
+        result = call_veneno_mcp_tool("run_active_scan", {"target": target})
+        return json.dumps(result, ensure_ascii=False)
     return json.dumps(
-        {"status": "simulated", "target": target, "note": "PoC analysis only, no exploitation"},
+        {"status": "simulated", "target": target, "note": "PoC analysis only; enable VENENO_MCP_ENABLED for execution"},
         ensure_ascii=False,
     )
 
@@ -74,8 +79,14 @@ def parse_netflow(netflow_text: str) -> str:
 
 @tool
 def enrich_ioc(ioc: str) -> str:
-    """Enrich IP/domain IOC with threat intelligence stub."""
-    return json.dumps({"ioc": ioc, "reputation": "suspicious", "tags": ["tor_exit"]}, ensure_ascii=False)
+    """Enrich IP/domain IOC via Veil threat-intel when available."""
+    from cys_core.integrations.veil_mcp_client import call_veil_mcp_tool, veil_mcp_enabled
+
+    if veil_mcp_enabled():
+        result = call_veil_mcp_tool("ti_search_in_category", {"query": ioc, "category": "ioc", "limit": 5})
+        if result.get("success"):
+            return json.dumps({"ioc": ioc, "source": "veil-ti", "enrichment": result.get("result")}, ensure_ascii=False)
+    return json.dumps({"ioc": ioc, "reputation": "suspicious", "tags": ["stub"], "source": "stub"}, ensure_ascii=False)
 
 
 @tool
@@ -159,6 +170,66 @@ def execute_command(command: str) -> str:
     return json.dumps({"executed": command, "status": "denied_by_policy"}, ensure_ascii=False)
 
 
+@tool
+def search_personas(query: str) -> str:
+    """Search registered agent personas by keyword."""
+    from cys_core.registry.discovery_tools import search_personas as _search
+
+    return json.dumps(_search(query), ensure_ascii=False)
+
+
+@tool
+def search_skills(query: str) -> str:
+    """Search product skills by keyword."""
+    from cys_core.registry.discovery_tools import search_skills as _search
+
+    return json.dumps(_search(query), ensure_ascii=False)
+
+
+@tool
+def search_tools(query: str, mode: str = "agent") -> str:
+    """Search available tools filtered by interaction mode policy."""
+    from cys_core.domain.runs.models import InteractionMode
+    from cys_core.registry.discovery_tools import search_tools as _search
+
+    try:
+        interaction_mode = InteractionMode(mode)
+    except ValueError:
+        interaction_mode = InteractionMode.AGENT
+    return json.dumps(_search(query, mode=interaction_mode), ensure_ascii=False)
+
+
+@tool
+def ask_user(question: str, *, context_id: str = "", tenant_id: str = "default") -> str:
+    """Pause run and surface a clarifying question to the operator."""
+    return json.dumps(
+        {
+            "status": "awaiting_user",
+            "question": question,
+            "context_id": context_id,
+            "tenant_id": tenant_id,
+        },
+        ensure_ascii=False,
+    )
+
+
+@tool
+def update_todos(todos_json: str, *, context_id: str = "", tenant_id: str = "default") -> str:
+    """Replace work todos for the active run context."""
+    from cys_core.domain.runs.plan_models import WorkTodo
+    from cys_core.infrastructure.runs.todo_store import InMemoryWorkTodoStore
+
+    try:
+        raw = json.loads(todos_json) if todos_json.strip().startswith("[") else []
+    except json.JSONDecodeError:
+        raw = []
+    todos = [WorkTodo.model_validate(item) for item in raw]
+    store = InMemoryWorkTodoStore()
+    if context_id:
+        store.replace_todos(tenant_id, context_id, todos)
+    return json.dumps({"updated": len(todos), "context_id": context_id}, ensure_ascii=False)
+
+
 _ALL_TOOLS: list[BaseTool] = [
     read_repo_metadata,
     parse_sast_report,
@@ -176,6 +247,11 @@ _ALL_TOOLS: list[BaseTool] = [
     map_framework,
     audit_evidence,
     execute_command,
+    search_personas,
+    search_skills,
+    search_tools,
+    ask_user,
+    update_todos,
 ]
 
 from cys_core.registry.veil_tools import build_veil_tools

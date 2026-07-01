@@ -1,0 +1,3 @@
+Goal: assess external attack surface for brand typosquat domains.
+Mode: plan. User asked for phased approach before any active scanning.
+Provide WorkPlan with clarifying questions about scope and authorized domains.

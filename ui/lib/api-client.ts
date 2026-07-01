@@ -145,3 +145,61 @@ export function resumeJob(
 export function statusStreamUrl() {
   return `${API_BASE}/status/stream`
 }
+
+export type RunResponse = {
+  run_context: {
+    context_id: string
+    kind: string
+    tenant_id: string
+    mode?: string
+    correlation_key: string
+  }
+  result: Record<string, unknown>
+  status?: string
+}
+
+export function createSession(body: {
+  goal: string
+  message?: string
+  mode?: string
+}) {
+  return request<RunResponse>("/sessions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+export function createRun(body: {
+  goal: string
+  message?: string
+  mode?: string
+  persona?: string
+}) {
+  return request<RunResponse>("/runs", {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+export function runStep(runId: string, body: { message: string; mode?: string }) {
+  return request<RunResponse>(`/runs/${runId}/steps`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+export function getRun(runId: string) {
+  return request<{ run_context: RunResponse["run_context"]; state: Record<string, unknown> | null }>(
+    `/runs/${runId}`,
+  )
+}
+
+export function approvePlan(
+  runId: string,
+  body: { decision: "approve" | "reject" | "edit"; actor?: string },
+) {
+  return request<RunResponse>(`/runs/${runId}/approve-plan`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}

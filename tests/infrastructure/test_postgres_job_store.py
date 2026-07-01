@@ -49,6 +49,9 @@ class _FakeConnection:
                         row["session_id"],
                         row["persona"],
                         row["status"],
+                        row.get("correlation_id", ""),
+                        row.get("tenant_id", "default"),
+                        row.get("event_id", ""),
                         row["hitl_preview_json"],
                         row["pending_hitl_json"],
                     )
@@ -59,13 +62,26 @@ class _FakeConnection:
         if sql.strip().startswith("CREATE TABLE"):
             return
         if "INSERT INTO worker_jobs" in sql:
-            job_id, persona, status, session_id, preview, pending = params
+            (
+                job_id,
+                persona,
+                status,
+                session_id,
+                correlation_id,
+                tenant_id,
+                event_id,
+                preview,
+                pending,
+            ) = params
             pending_data = json.loads(pending) if pending else None
             self.jobs[job_id] = {
                 "job_id": job_id,
                 "persona": persona,
                 "status": status,
                 "session_id": session_id,
+                "correlation_id": correlation_id,
+                "tenant_id": tenant_id,
+                "event_id": event_id,
                 "hitl_preview_json": json.loads(preview),
                 "pending_hitl_json": pending_data,
             }

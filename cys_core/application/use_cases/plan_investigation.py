@@ -6,7 +6,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
-from bootstrap.settings import settings
+from cys_core.application.runtime_config import get_planner_fallback_personas
 from cys_core.application.ports.memory import InvestigationStateStore
 from cys_core.domain.events.models import SecurityEvent
 from cys_core.domain.memory.models import InvestigationState
@@ -62,7 +62,7 @@ class PlanInvestigation:
 
     @classmethod
     def fallback_personas(cls) -> list[str]:
-        raw = settings.planner_fallback_personas.strip()
+        raw = get_planner_fallback_personas().strip()
         if not raw:
             return ["consultant"]
         return [item.strip() for item in raw.split(",") if item.strip()]

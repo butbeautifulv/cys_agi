@@ -21,7 +21,6 @@ from cys_core.application.use_cases.dispatch_event import ASYNC_PLANNER_PENDING
 from cys_core.domain.security.auth_models import AuthClaims
 from cys_core.domain.workers.models import JobResumeRequest
 from cys_core.observability.http import mount_metrics
-from cys_core.observability.langfuse_client import flush_langfuse, shutdown_langfuse
 from cys_core.observability.metrics import metrics, seed_agent_trust_gauges
 from cys_core.observability.platform_gauges import refresh_platform_gauges
 from cys_core.observability.otel import instrument_fastapi, setup_otel
@@ -73,8 +72,9 @@ def create_app(ingress: EventIngress | None = None) -> FastAPI:
                 refresh_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await refresh_task
-            flush_langfuse()
-            shutdown_langfuse()
+            trace_backend = get_container().get_trace_backend()
+            trace_backend.flush()
+            trace_backend.shutdown()
 
     app = FastAPI(title="cys-agi event platform", version="0.2.0", lifespan=lifespan)
     settings = get_settings()
@@ -87,6 +87,13 @@ def create_app(ingress: EventIngress | None = None) -> FastAPI:
     mount_metrics(app)
     instrument_fastapi(app)
     seed_agent_trust_gauges()
+
+    from interfaces.api.catalog import router as catalog_router
+    from interfaces.api.runs import router as runs_router
+
+    app.include_router(catalog_router)
+    app.include_router(runs_router)
+
     event_ingress = ingress or get_event_ingress()
     store = get_status_store()
     job_store = get_job_store()
@@ -112,7 +119,7 @@ def create_app(ingress: EventIngress | None = None) -> FastAPI:
         )
         store.record_event(event.model_dump())
 
-        if decision.reason == ASYNC_PLANNER_PENDING:
+        if getattr(decision, "reason", None) == ASYNC_PLANNER_PENDING:
             planner = event_ingress.plan_investigation
             orchestrator = event_ingress.orchestrator
 

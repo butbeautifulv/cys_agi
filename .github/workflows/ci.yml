@@ -13,65 +13,81 @@ permissions:
 
 env:
   REGISTRY: ghcr.io/${{ github.repository }}
-  ENABLE_REAL_LINTERS: ${{ vars.ENABLE_REAL_LINTERS != '' && vars.ENABLE_REAL_LINTERS || 'false' }}
   SECURITY_POLICY: config/security-gate-policy-adopt.yaml
+  STAGE: test
+  USE_MEMORY_FALLBACK: "true"
+  AUTH_ENABLED: "0"
+  RBAC_ENABLED: "0"
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Lint
-        run: |
-          if [ "$ENABLE_REAL_LINTERS" = "true" ]; then
-            pip install ruff
-            ruff check .
-          else
-            echo "Placeholder lint — set repo variable ENABLE_REAL_LINTERS=true"
-          fi
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - name: Ruff
+        run: uv run ruff check cys_core interfaces bootstrap tests
 
-  unit-test:
+  unit-batches:
     runs-on: ubuntu-latest
+    needs: [lint]
     steps:
       - uses: actions/checkout@v4
-      - name: Unit tests
-        run: |
-          if [ -f requirements.txt ] && [ -d tests ]; then
-            pip install pytest -r requirements.txt
-            pytest tests/ -q
-          else
-            echo "Placeholder unit tests"
-          fi
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - name: Pytest batches
+        run: make test-batches
 
-  secrets:
-    needs: [lint, unit-test]
-    uses: ./.github/workflows/job-secret-scan.yml
-    secrets: inherit
-  sast:
-    needs: [lint, unit-test]
-    uses: ./.github/workflows/job-sast.yml
-    secrets: inherit
-  osa:
-    needs: [lint, unit-test]
-    uses: ./.github/workflows/job-osa.yml
-    secrets: inherit
-  iac:
-    needs: [lint, unit-test]
-    uses: ./.github/workflows/job-iac-scan.yml
-    secrets: inherit
-  dockerfile:
-    needs: [lint, unit-test]
-    uses: ./.github/workflows/job-dockerfile-lint.yml
-    secrets: inherit
-  linters:
-    needs: [lint, unit-test]
-    uses: ./.github/workflows/job-linter-security.yml
+  domain-gate:
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - name: Domain 100% gate
+        run: make domain-gate
+
+  verify-architecture:
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - name: Architecture gates
+        run: make verify-architecture
+
+  arch-gate:
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - name: Architecture test batch
+        run: make arch-gate
+
+  security-shift-left:
+    needs: [unit-batches, domain-gate, verify-architecture, arch-gate]
+    uses: ./.github/workflows/security-shift-left.yml
     secrets: inherit
 
   build:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    needs: [secrets, sast, osa, iac, dockerfile, linters]
+    needs: [security-shift-left]
     outputs:
       image_tag: ${{ steps.meta.outputs.tag }}
     steps:

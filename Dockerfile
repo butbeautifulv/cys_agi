@@ -1,51 +1,20 @@
-# syntax=docker/dockerfile:1.7
-
-FROM python:3.13-slim AS builder
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy
-
-WORKDIR /build
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates build-essential \
-    && rm -rf /var/lib/apt/lists/* \
-    && python -m pip install --no-cache-dir uv
+# cxado/egregore — API + worker (same image, different command).
+FROM python:3.13-slim AS base
+WORKDIR /app
+RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock README.md ./
+COPY cys_core ./cys_core
+COPY interfaces ./interfaces
+COPY bootstrap ./bootstrap
+COPY agents ./agents
+
 RUN uv sync --frozen --no-dev
 
-COPY . .
-RUN python -m compileall -q bootstrap cys_core interfaces connectors
+ENV PYTHONUNBUFFERED=1
+ENV STAGE=prod
+ENV USE_MEMORY_FALLBACK=false
 
-FROM python:3.13-slim AS runtime
+EXPOSE 8080
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH" \
-    STAGE=prod \
-    USE_MEMORY_FALLBACK=false \
-    PERSISTENCE_CONNECTOR=postgres \
-    JOB_STORE_CONNECTOR=postgres
-
-WORKDIR /app
-
-RUN groupadd --system --gid 10001 cysagi \
-    && useradd --system --uid 10001 --gid cysagi --home-dir /nonexistent --shell /usr/sbin/nologin cysagi \
-    && mkdir -p /app /tmp/cys-agi \
-    && chown -R cysagi:cysagi /app /tmp/cys-agi
-
-COPY --from=builder --chown=cysagi:cysagi /build/.venv /app/.venv
-COPY --from=builder --chown=cysagi:cysagi /build/agents /app/agents
-COPY --from=builder --chown=cysagi:cysagi /build/bootstrap /app/bootstrap
-COPY --from=builder --chown=cysagi:cysagi /build/cys_core /app/cys_core
-COPY --from=builder --chown=cysagi:cysagi /build/interfaces /app/interfaces
-COPY --from=builder --chown=cysagi:cysagi /build/connectors /app/connectors
-COPY --from=builder --chown=cysagi:cysagi /build/migrations /app/migrations
-COPY --from=builder --chown=cysagi:cysagi /build/pyproject.toml /build/README.md /build/LICENSE /app/
-
-USER 10001:10001
-
-ENTRYPOINT ["cys-agi"]
-CMD ["worker", "--help"]
+CMD ["uv", "run", "egregore", "serve", "--host", "0.0.0.0", "--port", "8080"]

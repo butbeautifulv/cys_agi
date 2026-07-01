@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: egregore-ui
+  labels:
+    app: egregore-ui
+spec:
+  replicas: {{ .Values.ui.replicas }}
+  selector:
+    matchLabels:
+      app: egregore-ui
+  template:
+    metadata:
+      labels:
+        app: egregore-ui
+    spec:
+      containers:
+        - name: ui
+          image: "{{ .Values.ui.image.repository }}:{{ .Values.ui.image.tag }}"
+          imagePullPolicy: {{ .Values.ui.image.pullPolicy }}
+          ports:
+            - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egregore-ui
+spec:
+  selector:
+    app: egregore-ui
+  ports:
+    - port: 3000
+      targetPort: 3000

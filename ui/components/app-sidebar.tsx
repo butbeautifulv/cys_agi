@@ -1,12 +1,13 @@
 "use client"
 
-import { ClipboardCheck, LayoutDashboard, Shield } from "lucide-react"
+import { ClipboardCheck, LayoutDashboard, PlayCircle, Shield } from "lucide-react"
 import { usePathname } from "next/navigation"
 
 import { ShellSidebar } from "@/vendor/gui/shell/shell-sidebar"
 
 const navItems = [
   { title: "Investigations", href: "/", icon: LayoutDashboard },
+  { title: "Agent runs", href: "/runs", icon: PlayCircle },
   { title: "Approvals", href: "/approvals", icon: ClipboardCheck },
 ]
 

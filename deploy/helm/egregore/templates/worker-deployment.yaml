@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: egregore-worker
+  labels:
+    app: egregore-worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app: egregore-worker
+  template:
+    metadata:
+      labels:
+        app: egregore-worker
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - uv
+            - run
+            - egregore
+            - worker
+            - --daemon
+            - --idle-timeout
+            - {{ .Values.worker.idleTimeout | quote }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "egregore.fullname" . }}-env
+            - secretRef:
+                name: {{ include "egregore.fullname" . }}-secrets
+          env:
+            - name: PROMETHEUS_MULTIPROC_DIR
+              value: ""

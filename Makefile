@@ -1,4 +1,4 @@
-.PHONY: dev dev-infra dev-api dev-ui dev-worker dev-workers dev-docker dev-langfuse dev-langfuse-fresh langfuse-dev-setup langfuse-setup-judge dev-obs dev-tool-gateway obs-reload
+.PHONY: dev dev-infra dev-api dev-ui dev-worker dev-workers dev-docker dev-langfuse dev-langfuse-fresh langfuse-dev-setup langfuse-setup-judge dev-obs dev-tool-gateway obs-reload test-batches domain-gate verify-architecture verify-import-boundaries arch-gate
 
 dev-infra:
 	docker compose up -d
@@ -58,3 +58,20 @@ dev:
 
 dev-docker:
 	docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile app up -d --build --scale worker=$${WORKER_REPLICAS:-2}
+
+test-batches:
+	@./scripts/pytest_batches.sh $(ARGS)
+
+domain-gate:
+	@./scripts/pytest_batches.sh tests/domain --cov --domain-gate
+
+verify-architecture:
+	@chmod +x scripts/verify_no_langfuse_in_core.sh
+	@./scripts/verify_no_langfuse_in_core.sh
+	@$(MAKE) verify-import-boundaries
+
+verify-import-boundaries:
+	@uv run python scripts/verify_import_boundaries.py
+
+arch-gate:
+	@./scripts/pytest_batches.sh tests/architecture

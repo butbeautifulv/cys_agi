@@ -14,6 +14,7 @@ WORKER_NAMES = {
     "dfir",
     "cloud",
     "purple",
+    "conductor",
 }
 
 ALL_AGENT_NAMES = WORKER_NAMES | {"critic", "coordinator", "planner"}

@@ -143,20 +143,36 @@ Ingress → EventRouter → JobQueue → WorkerOrchestrator → Bus
 
 ## Тесты
 
+**Агентам: только батчами** — `./scripts/pytest_batches.sh`, не `uv run pytest` на весь `tests/` одним процессом.
+
+- **Точечно** после правок: только затронутые батчи (см. `.cursor/rules/project-egregore-pytest-batches.mdc`).
+- **Полный прогон** — перед PR / после cross-cutting рефакторинга.
+
+Правило: `.cursor/rules/project-egregore-pytest-batches.mdc`.
+
 ```bash
 ./scripts/pytest_batches.sh
 ./scripts/pytest_batches.sh --cov --domain-gate
+make domain-gate              # alias: 100% on domain/runs, domain/catalog, domain/observability
+make verify-architecture      # no langfuse SDK imports in cys_core
+./scripts/pytest_batches.sh tests/domain tests/application   # выборочно
 USE_MEMORY_FALLBACK=true STAGE=test uv run pytest tests/domain/ -q --cov=cys_core/domain --cov-fail-under=100
 ```
 
 **CI gates** (all required on PR): `arch-gate`, `adversarial-gate`, `agent-policy-gate`, `security-shift-left` (Fabrica B1–B6). See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#ci).
 
-Структура:
+Структура (батчи `pytest_batches.sh`):
 
-- `tests/domain/` — events, workers, security, findings
-- `tests/workers/`, `tests/ingress/`, `tests/control/` — event-driven wiring
-- `tests/middleware/` — LangChain middleware
-- `tests/infrastructure/` — sandbox, queue, CLI
+- `tests/domain/` — domain entities, policies, observability types
+- `tests/application/` — use cases
+- `tests/api/` — FastAPI routes
+- `tests/architecture/` — import boundaries, hexagon gates
+- `tests/bootstrap/` — container, product loader
+- `tests/connectors/` — Langfuse, external connectors
+- `tests/infrastructure/` — sandbox, queue, stores
+- `tests/ingress/` — event ingress
+- `tests/observability/` — trace backends
+- `tests/registry/` — agents, tools
 - `tests/adversarial/` — security abuse cases
 
 Coverage gate: **100%** на `cys_core/domain`.

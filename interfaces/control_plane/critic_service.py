@@ -44,6 +44,7 @@ class CriticService:
 
     def _processor(self) -> ProcessFindingCritic:
         container = get_container()
+        judge = container.get_judge_backend() if settings.critic_use_llm_judge else None
         return ProcessFindingCritic(
             guardrails=self.guardrails,
             store=self.store,
@@ -54,6 +55,7 @@ class CriticService:
             investigation_store=container.get_investigation_state_store(),
             record_memory_write=metrics.record_memory_write,
             enqueue_revision=self._enqueue_revision,
+            judge_backend=judge,
         )
 
     async def handle_message(self, envelope: dict[str, Any]) -> dict[str, Any]:

@@ -10,7 +10,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from bootstrap.settings import settings
+from cys_core.application.runtime_config import get_stage
+from cys_core.llm import get_default_recursion_limit
 from cys_core.application.ports import ModelConnector, PersistenceContext
 from cys_core.domain.agents.policies import build_interrupt_on
 from cys_core.domain.memory.services import MemoryReadService
@@ -24,7 +25,7 @@ from cys_core.middleware.memory_context_middleware import MemoryContextMiddlewar
 from cys_core.middleware.prompt_context_middleware import PromptContextMiddleware
 from cys_core.middleware.scope_middleware import ScopeMiddleware
 from cys_core.middleware.security_middleware import SecurityMiddleware
-from cys_core.observability.langfuse_tags import merge_langchain_config
+from cys_core.observability.trace_attributes import merge_langchain_config
 from cys_core.observability.metrics import metrics
 from cys_core.registry.agents import AgentDefinition, AgentRegistry, get_agent_registry
 from cys_core.registry.schemas import schema_registry
@@ -68,15 +69,15 @@ def _parse_json_text(text: str) -> dict[str, Any] | None:
 
 
 def _default_sync_persistence() -> PersistenceContext:
-    from bootstrap.container import get_container
+    from cys_core.application.ports.persistence_provider import get_sync_persistence
 
-    return get_container().get_persistence_context()
+    return get_sync_persistence()
 
 
 async def _default_async_persistence() -> PersistenceContext:
-    from bootstrap.container import get_container
+    from cys_core.application.ports.persistence_provider import get_async_persistence
 
-    return await get_container().get_async_persistence_context()
+    return await get_async_persistence()
 
 
 def _default_memory_reader() -> MemoryReadService | None:
@@ -382,7 +383,7 @@ class AgentRuntime:
             {
                 "configurable": {"thread_id": session_id},
                 "callbacks": self.model_connector.callbacks(),
-                "recursion_limit": recursion_limit or settings.default_job_recursion_limit,
+                "recursion_limit": recursion_limit or get_default_recursion_limit(),
             },
             persona=agent_id or session_id,
             job_id=job_id,
@@ -439,7 +440,7 @@ class AgentRuntime:
                 validated = self.guardrails.validate_schema(data, schema)
                 return validated.model_dump()
             except SecurityViolation:
-                if settings.stage == "dev":
+                if get_stage() == "dev":
                     return data
                 raise
         return self.guardrails.validate_output({"response": json.dumps(data, ensure_ascii=False)})

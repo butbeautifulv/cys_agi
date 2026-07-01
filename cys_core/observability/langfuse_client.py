@@ -1,72 +1,38 @@
 from __future__ import annotations
 
-import logging
 from functools import lru_cache
-from typing import Any
+from typing import Any, Callable
 
-from bootstrap.settings import settings
+_trace_backend_factory: Callable[[], Any] | None = None
 
-logger = logging.getLogger(__name__)
+
+def configure_trace_backend_factory(factory: Callable[[], Any]) -> None:
+    global _trace_backend_factory
+    _trace_backend_factory = factory
 
 
 @lru_cache
-def _ensure_langfuse_client() -> bool:
-    """Initialize Langfuse SDK once when both API keys are configured."""
-    if not settings.langfuse_enabled:
-        return False
-    try:
-        from langfuse import Langfuse
+def _trace_backend():
+    if _trace_backend_factory is None:
+        from cys_core.infrastructure.observability.backends import NoopTraceBackend
 
-        Langfuse(
-            public_key=settings.resolved_langfuse_public_key,
-            secret_key=settings.langfuse_secret_key,
-            host=settings.resolved_langfuse_host,
-        )
-        return True
-    except Exception:
-        logger.warning("Failed to initialize Langfuse client", exc_info=True)
-        return False
+        return NoopTraceBackend()
+    return _trace_backend_factory()
 
 
 def get_langfuse_callback_handler() -> Any | None:
-    """Return LangChain CallbackHandler when Langfuse tracing is enabled."""
-    if not _ensure_langfuse_client():
-        return None
-    try:
-        from langfuse.langchain import CallbackHandler
-
-        return CallbackHandler()
-    except Exception:
-        logger.warning("Failed to create Langfuse CallbackHandler", exc_info=True)
-        return None
+    """Thin shim — delegates to TraceBackendPort."""
+    return _trace_backend().get_callback_handler()
 
 
 def flush_langfuse() -> None:
-    """Flush pending Langfuse events (required for short-lived CLI worker runs)."""
-    if not settings.langfuse_enabled:
-        return
-    try:
-        from langfuse import get_client
-
-        get_client().flush()
-    except Exception:
-        logger.warning("Failed to flush Langfuse client", exc_info=True)
+    _trace_backend().flush()
 
 
 def shutdown_langfuse() -> None:
-    """Flush and shut down the Langfuse client (API lifespan / graceful exit)."""
-    if not settings.langfuse_enabled:
-        return
-    try:
-        from langfuse import get_client
-
-        client = get_client()
-        client.flush()
-        client.shutdown()
-    except Exception:
-        logger.warning("Failed to shutdown Langfuse client", exc_info=True)
+    _trace_backend().shutdown()
 
 
 def reset_langfuse_client_cache() -> None:
-    """Clear cached client init state (tests only)."""
-    _ensure_langfuse_client.cache_clear()
+    """Clear cached backend (tests only)."""
+    _trace_backend.cache_clear()

@@ -51,8 +51,10 @@ In `projects/egregore/.env`:
 ```bash
 VEIL_MCP_URL=http://localhost:8091/mcp
 VEIL_MCP_ENABLED=true
-USE_TOOL_GATEWAY=true
-TOOL_GATEWAY_URL=http://localhost:8092   # not :8090 (Veil Graph API)
+USE_TOOL_GATEWAY=false
+# Optional: route tools via gateway (requires `make dev-tool-gateway` on :8092)
+# USE_TOOL_GATEWAY=true
+# TOOL_GATEWAY_URL=http://localhost:8092
 ```
 
 Start the egregore tool gateway (optional separate terminal):
@@ -189,3 +191,19 @@ Preflight before investigations:
 curl -m 5 -H "Authorization: Bearer EMPTY" "${LLM_BASE_URL%/}/models"
 docker compose ps postgres redis
 ```
+
+## CI
+
+Local gates mirror GitHub Actions (`.github/workflows/ci.yml`):
+
+```bash
+make test-batches           # all pytest batches
+make domain-gate            # 100% coverage on cys_core/domain/{runs,catalog,observability}
+make verify-architecture    # no langfuse in core + import boundaries
+make arch-gate              # tests/architecture batch
+make verify-import-boundaries
+```
+
+CI jobs: `lint` (ruff), `unit-batches`, `domain-gate`, `verify-architecture`, `arch-gate`, plus Fabrica security gates via `security-shift-left.yml` (B1–B6).
+
+Required on PR: `arch-gate`, `adversarial-gate`, `agent-policy-gate`, `security-shift-left`.

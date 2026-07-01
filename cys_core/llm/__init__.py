@@ -2,18 +2,24 @@ from __future__ import annotations
 
 from typing import Any
 
-from bootstrap.settings import settings
+from cys_core.application.ports.trace_callbacks import get_trace_callbacks
 from cys_core.application.ports import ModelConnector
+from cys_core.application.runtime_config import get_default_job_recursion_limit
 from cys_core.llm.litellm_provider import LiteLLMProvider
 from cys_core.llm.protocol import ChatModelProvider
 
+_PROVIDER_NAME = "litellm"
 _PROVIDERS: dict[str, ChatModelProvider] = {
-    "litellm": LiteLLMProvider(),
+    _PROVIDER_NAME: LiteLLMProvider(),
 }
 
 
+def configure_llm_provider(name: str, provider: ChatModelProvider) -> None:
+    _PROVIDERS[name] = provider
+
+
 def get_provider(name: str | None = None) -> ChatModelProvider:
-    provider_name = name or settings.llm_provider
+    provider_name = name or _PROVIDER_NAME
     if provider_name not in _PROVIDERS:
         raise ValueError(f"Unknown LLM provider: {provider_name}")
     return _PROVIDERS[provider_name]
@@ -33,20 +39,23 @@ class LLMConnector:
     """ModelConnector implementation backed by configured ChatModelProvider."""
 
     def __init__(self, provider_name: str | None = None) -> None:
-        self.name = provider_name or settings.llm_provider
+        self.name = provider_name or _PROVIDER_NAME
 
     def create_model(self):
+        from cys_core.application.runtime_config import get_llm_settings
+
+        llm = get_llm_settings()
         provider = get_provider(self.name)
         return provider.create(
-            model=settings.llm_model,
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_base_url,
-            temperature=settings.llm_temperature,
-            request_timeout=settings.llm_request_timeout,
+            model=llm["model"],
+            api_key=llm["api_key"],
+            base_url=llm["base_url"],
+            temperature=llm["temperature"],
+            request_timeout=llm["request_timeout"],
         )
 
     def callbacks(self) -> list[Any]:
-        return _build_langfuse_callbacks()
+        return get_trace_callbacks()
 
 
 _MODEL_CONNECTORS: dict[str, ModelConnector] = {
@@ -55,15 +64,11 @@ _MODEL_CONNECTORS: dict[str, ModelConnector] = {
 
 
 def get_model_connector(name: str | None = None) -> ModelConnector:
-    connector_name = name or settings.llm_provider
+    connector_name = name or _PROVIDER_NAME
     if connector_name not in _MODEL_CONNECTORS:
         raise ValueError(f"Unknown model connector: {connector_name}")
     return _MODEL_CONNECTORS[connector_name]
 
 
-def _build_langfuse_callbacks() -> list[Any]:
-    """Optional Langfuse tracing callbacks (Langfuse SDK v3 CallbackHandler)."""
-    from cys_core.observability.langfuse_client import get_langfuse_callback_handler
-
-    handler = get_langfuse_callback_handler()
-    return [handler] if handler is not None else []
+def get_default_recursion_limit() -> int:
+    return get_default_job_recursion_limit()

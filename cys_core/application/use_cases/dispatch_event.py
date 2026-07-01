@@ -3,12 +3,45 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
-from bootstrap.settings import settings
+from cys_core.application.runtime_config import (
+    get_manual_investigation_async,
+    get_use_conductor_for_events,
+)
 from cys_core.application.use_cases.plan_investigation import InvestigationPlan, PlanInvestigation
 from cys_core.domain.events.models import RoutingDecision, SecurityEvent
 from cys_core.domain.events.router import EventRouter
+from cys_core.domain.runs.models import RunContext
 
 ASYNC_PLANNER_PENDING = "async_planner_pending"
+
+
+def enrich_payload_with_run_context(event: SecurityEvent, payload: dict[str, Any]) -> dict[str, Any]:
+    """Attach RunContext(kind=event) — no session required."""
+    ctx = RunContext.from_event(event)
+    return {**payload, "run_context": ctx.model_dump()}
+
+
+def apply_conductor_routing(
+    event: SecurityEvent,
+    decision: RoutingDecision,
+    payload: dict[str, Any],
+) -> tuple[RoutingDecision, dict[str, Any]]:
+    """Optional meta-worker routing: conductor orchestrates suggested personas."""
+    if not get_use_conductor_for_events() or not decision.personas:
+        return decision, enrich_payload_with_run_context(event, payload)
+    from cys_core.application.plans_as_hints import load_plan_hints
+
+    enriched = enrich_payload_with_run_context(event, payload)
+    enriched["routing_hints"] = load_plan_hints()
+    enriched["suggested_personas"] = list(decision.personas)
+    conductor_decision = RoutingDecision(
+        event_id=decision.event_id,
+        personas=["conductor"],
+        playbook_id=decision.playbook_id,
+        notify_control=decision.notify_control,
+        reason="conductor_meta_worker",
+    )
+    return conductor_decision, enriched
 
 
 class JobEnqueuer(Protocol):
@@ -90,11 +123,12 @@ class DispatchEvent:
         decision = self.router.route(event)
         job_ids: list[str] = []
         if decision.personas:
+            decision, enriched_payload = apply_conductor_routing(event, decision, payload)
             job_ids = self.enqueuer.enqueue_from_routing_sync(
                 event.id,
                 decision.personas,
                 playbook_id=decision.playbook_id,
-                payload=payload,
+                payload=enriched_payload,
                 correlation_id=event.correlation_id or event.id,
                 tenant_id=event.tenant_id,
                 sequential=False,
@@ -103,7 +137,7 @@ class DispatchEvent:
 
     async def dispatch_async(self, event: SecurityEvent, payload: dict[str, Any]) -> tuple[RoutingDecision, list[str]]:
         if event.type == "manual.investigation" and self.plan_investigation is not None:
-            if settings.manual_investigation_async:
+            if get_manual_investigation_async():
                 self.plan_investigation.begin_planning(event)
                 decision = RoutingDecision(
                     event_id=event.id,
@@ -142,11 +176,12 @@ class DispatchEvent:
         decision = self.router.route(event)
         job_ids: list[str] = []
         if decision.personas:
+            decision, enriched_payload = apply_conductor_routing(event, decision, payload)
             job_ids = await self.enqueuer.enqueue_from_routing(
                 event.id,
                 decision.personas,
                 playbook_id=decision.playbook_id,
-                payload=payload,
+                payload=enriched_payload,
                 correlation_id=event.correlation_id or event.id,
                 tenant_id=event.tenant_id,
                 sequential=False,

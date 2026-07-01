@@ -21,6 +21,7 @@ personas:
     - dfir
     - cloud
     - purple
+    - conductor
   control: [critic, coordinator]
 
 default_plan: incident-triage

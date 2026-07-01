@@ -1,0 +1,13 @@
+__pycache__
+.venv
+.git
+.pytest_cache
+.ruff_cache
+htmlcov
+.coverage
+ui/node_modules
+ui/.next
+tests
+docs
+*.md
+.cursor

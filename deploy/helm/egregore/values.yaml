@@ -1,0 +1,55 @@
+image:
+  repository: cxado/egregore
+  tag: local
+  pullPolicy: IfNotPresent
+
+ui:
+  image:
+    repository: cxado/egregore-ui
+    tag: local
+    pullPolicy: IfNotPresent
+  replicas: 1
+
+api:
+  replicas: 1
+  port: 8080
+
+worker:
+  replicas: 2
+  idleTimeout: 0
+
+env:
+  stage: prod
+  useMemoryFallback: "false"
+  useQdrant: "true"
+  authEnabled: "false"
+  otelEnabled: "true"
+
+postgres:
+  host: ""
+  port: 5432
+  user: postgres
+  password: ""
+  database: egregore
+
+redis:
+  host: ""
+  port: 6379
+  password: ""
+
+qdrant:
+  url: ""
+
+veil:
+  mcpUrl: ""
+
+otel:
+  endpoint: ""
+
+langfuse:
+  host: ""
+
+resources:
+  api: {}
+  worker: {}
+  ui: {}

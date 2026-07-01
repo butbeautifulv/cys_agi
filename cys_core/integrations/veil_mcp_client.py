@@ -5,7 +5,11 @@ from typing import Any
 
 import httpx
 
-from bootstrap.settings import settings
+from cys_core.application.runtime_config import (
+    get_veil_mcp_timeout,
+    get_veil_mcp_url,
+    veil_mcp_enabled as _veil_mcp_enabled,
+)
 
 # Read-only Veil knowledge graph + playbook tools exposed to egregore agents.
 VEIL_MCP_TOOL_NAMES: frozenset[str] = frozenset(
@@ -33,7 +37,7 @@ class VeilMcpError(Exception):
 
 
 def veil_mcp_enabled() -> bool:
-    return settings.veil_mcp_enabled
+    return _veil_mcp_enabled()
 
 
 def call_veil_mcp_tool(tool_name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -50,10 +54,10 @@ def call_veil_mcp_tool(tool_name: str, arguments: dict[str, Any] | None = None) 
         "params": {"name": tool_name, "arguments": arguments or {}},
     }
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    url = settings.veil_mcp_url.rstrip("/")
+    url = get_veil_mcp_url().rstrip("/")
 
     try:
-        with httpx.Client(timeout=settings.veil_mcp_timeout) as client:
+        with httpx.Client(timeout=get_veil_mcp_timeout()) as client:
             response = client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             body = response.json()

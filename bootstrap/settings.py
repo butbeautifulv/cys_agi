@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     siem_base_url: str = Field(default="", validation_alias="SIEM_BASE_URL")
     use_real_embeddings: bool = Field(default=False, validation_alias="USE_REAL_EMBEDDINGS")
     agents_root: str = Field(default="agents", validation_alias="AGENTS_ROOT")
+    use_dynamic_catalog: bool = Field(default=False, validation_alias="USE_DYNAMIC_CATALOG")
+    obs_prompt_backend: str = Field(default="filesystem", validation_alias="OBS_PROMPT_BACKEND")
+    obs_trace_backend: str = Field(default="langfuse", validation_alias="OBS_TRACE_BACKEND")
+    obs_judge_backend: str = Field(default="noop", validation_alias="OBS_JUDGE_BACKEND")
+    obs_eval_backend: str = Field(default="noop", validation_alias="OBS_EVAL_BACKEND")
+    critic_use_llm_judge: bool = Field(default=False, validation_alias="CRITIC_USE_LLM_JUDGE")
+    use_conductor_for_events: bool = Field(default=False, validation_alias="USE_CONDUCTOR_FOR_EVENTS")
+    max_spawn_depth: int = Field(default=5, validation_alias="MAX_SPAWN_DEPTH")
 
     kafka_bootstrap_servers: str = Field(
         default="localhost:19092",
@@ -98,6 +106,13 @@ class Settings(BaseSettings):
     )
     veil_mcp_enabled: bool = Field(default=True, validation_alias="VEIL_MCP_ENABLED")
     veil_mcp_timeout: float = Field(default=30.0, validation_alias="VEIL_MCP_TIMEOUT")
+
+    veneno_mcp_url: str = Field(
+        default="http://localhost:8093/mcp",
+        validation_alias="VENENO_MCP_URL",
+    )
+    veneno_mcp_enabled: bool = Field(default=False, validation_alias="VENENO_MCP_ENABLED")
+    veneno_mcp_timeout: float = Field(default=60.0, validation_alias="VENENO_MCP_TIMEOUT")
 
     job_cost_per_1k_tokens_usd: float = Field(
         default=0.003,

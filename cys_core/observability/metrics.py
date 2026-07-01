@@ -78,6 +78,12 @@ class CysMetrics:
             "Open or in-progress investigations",
             multiprocess_mode="mostrecent",
         )
+        self.catalog_version = Gauge(
+            "cys_catalog_version",
+            "Dynamic agent catalog version",
+            ["profile_id"],
+            multiprocess_mode="mostrecent",
+        )
         self.persistence_fallback = Counter(
             "cys_persistence_fallback_total",
             "Silent fallbacks from durable persistence to in-memory stores",

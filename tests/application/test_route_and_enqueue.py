@@ -10,7 +10,11 @@ from cys_core.domain.events.models import RoutingDecision
 
 
 @pytest.mark.unit
-def test_route_and_enqueue_sync():
+def test_route_and_enqueue_sync(monkeypatch):
+    monkeypatch.setenv("USE_CONDUCTOR_FOR_EVENTS", "0")
+    from bootstrap.settings import get_settings
+
+    get_settings.cache_clear()
     router = SimpleNamespace(
         route=lambda event: RoutingDecision(
             event_id=event.id,
