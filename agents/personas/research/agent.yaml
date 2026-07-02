@@ -1,0 +1,23 @@
+name: research
+description: Read-only OSINT and document research for public information and attachments
+role: worker
+output_schema: ConsultantFinding
+capabilities:
+  - capability:web
+  - capability:documents
+tools:
+  - web_search
+  - read_document
+  - vision_analyze
+  - search_archived_webpage
+  - rag_query
+  - ti_search_in_category
+skills:
+  - threat-intel-osint
+hitl_tools: {}
+trust_level: internal
+bus_recipients:
+  - critic
+  - coordinator
+language: ru
+sample: samples/default.txt

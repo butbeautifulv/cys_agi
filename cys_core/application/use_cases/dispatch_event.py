@@ -9,7 +9,7 @@ from cys_core.application.runtime_config import (
 )
 from cys_core.application.use_cases.plan_investigation import InvestigationPlan, PlanInvestigation
 from cys_core.domain.events.models import RoutingDecision, SecurityEvent
-from cys_core.domain.events.router import EventRouter
+from cys_core.application.routing.event_router import EventRouter
 from cys_core.domain.runs.models import RunContext
 
 ASYNC_PLANNER_PENDING = "async_planner_pending"
@@ -169,7 +169,7 @@ class DispatchEvent:
                 payload=enriched,
                 correlation_id=event.correlation_id or event.id,
                 tenant_id=event.tenant_id,
-                sequential=True,
+                sequential=bool(plan.depends_on),
             )
             return decision, job_ids
 

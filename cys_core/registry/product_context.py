@@ -7,10 +7,35 @@ import yaml
 from pydantic import BaseModel
 
 from bootstrap.settings import settings
+from cys_core.application.ports.catalog import AgentCatalogPort
+from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
 from cys_core.domain.security.prompt_context import TrustedSystemContext, build_trusted_system_context
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RULES_SKIP = frozenset({"README.md"})
+
+_catalog_provider: AgentCatalogPort | None = None
+
+
+def set_catalog_provider(catalog: AgentCatalogPort | None) -> None:
+    global _catalog_provider
+    _catalog_provider = catalog
+
+
+def _default_catalog() -> AgentCatalogPort | None:
+    if _catalog_provider is not None:
+        return _catalog_provider
+    try:
+        from bootstrap.container import get_container
+
+        return get_container().get_agent_catalog()
+    except Exception:
+        try:
+            from cys_core.infrastructure.catalog.hybrid_registry import get_agent_catalog
+
+            return get_agent_catalog()
+        except Exception:
+            return None
 
 
 def default_agents_root() -> Path:
@@ -81,8 +106,21 @@ class ProductContext:
     def augment_prompt(self, base_prompt: str) -> str:
         return self.build_system_context(base_prompt).text
 
-    def build_system_context(self, persona: str) -> TrustedSystemContext:
-        return build_trusted_system_context(persona, self._rules_block)
+    def build_system_context(self, persona: str, *, profile_id: str = DEFAULT_PROFILE_ID) -> TrustedSystemContext:
+        rules = self._rules_block
+        try:
+            from cys_core.application.runtime_config import get_use_dynamic_catalog
+
+            if get_use_dynamic_catalog():
+                catalog = _default_catalog()
+                if catalog is not None:
+                    for profile in catalog.list_profiles():
+                        if profile.id == profile_id and profile.global_rules:
+                            rules = profile.global_rules
+                            break
+        except Exception:
+            pass
+        return build_trusted_system_context(persona, rules)
 
 
 @lru_cache

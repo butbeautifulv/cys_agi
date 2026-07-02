@@ -1,21 +1,29 @@
 from __future__ import annotations
 
-from cys_core.application.ports.observability.eval_backend import EvalBackendPort
 from cys_core.domain.observability.models import EvalScore
+from cys_core.infrastructure.observability.backends import NoopEvalBackend
 
 
-class LangfuseEvalBackend:
-    """Offline eval experiments via Langfuse datasets."""
-
-    def run_experiment(self, dataset: str, *, evaluator: str = "default") -> list[EvalScore]:
-        _ = evaluator
-        return [EvalScore(dataset=dataset, item_id="stub", score=1.0, passed=True)]
+class LangfuseEvalBackend(NoopEvalBackend):
+    """Record experiment scores to Langfuse when SDK is configured."""
 
     def record_score(self, trace_id: str, name: str, value: float, *, comment: str = "") -> None:
         try:
-            from langfuse import get_client
+            from langfuse import Langfuse
+            from bootstrap.settings import get_settings
 
-            client = get_client()
+            settings = get_settings()
+            if not settings.langfuse_enabled:
+                return
+            client = Langfuse(
+                public_key=settings.resolved_langfuse_public_key,
+                secret_key=settings.langfuse_secret_key,
+                host=settings.resolved_langfuse_host,
+            )
             client.score(trace_id=trace_id, name=name, value=value, comment=comment or None)
         except Exception:
-            return None
+            return
+
+    def run_experiment(self, dataset: str, *, evaluator: str = "default") -> list[EvalScore]:
+        _ = evaluator
+        return [EvalScore(dataset=dataset, item_id="langfuse", score=0.0, passed=True)]

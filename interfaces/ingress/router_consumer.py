@@ -7,7 +7,7 @@ from bootstrap.container import get_container
 from cys_core.application.use_cases.dispatch_event import DispatchEvent
 from cys_core.application.use_cases.plan_investigation import PlanInvestigation
 from cys_core.domain.events.models import SecurityEvent
-from cys_core.domain.events.router import EventRouter
+from cys_core.application.routing.event_router import EventRouter
 from cys_core.infrastructure.daemon_runner import run_poll_daemon
 from cys_core.infrastructure.kafka_events import consume_raw_event
 from cys_core.registry.product_context import default_agents_root

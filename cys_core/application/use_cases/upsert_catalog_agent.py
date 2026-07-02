@@ -3,8 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 from cys_core.application.ports.catalog import AgentCatalogPort
-from cys_core.application.ports.catalog_audit import CatalogAuditPort
-from cys_core.domain.catalog.models import AgentCatalogEntry, CatalogSource
+from cys_core.domain.catalog.models import AgentCatalogEntry, CatalogSource, PersonaQuality
 from cys_core.registry.schemas import schema_registry
 
 
@@ -14,11 +13,11 @@ class UpsertCatalogAgent:
         catalog: AgentCatalogPort,
         *,
         reload: Callable[[], None] | None = None,
-        record_audit: Callable[..., None] | None = None,
+        write_gate=None,
     ) -> None:
         self.catalog = catalog
         self.reload = reload or (lambda: None)
-        self.record_audit = record_audit
+        self._write_gate = write_gate
 
     def execute(
         self,
@@ -27,26 +26,41 @@ class UpsertCatalogAgent:
         *,
         actor: str = "api",
     ) -> AgentCatalogEntry:
-        if body.get("output_schema"):
-            schema_registry.get(body["output_schema"])
+        schema_name = body.get("output_schema")
+        if schema_name:
+            try:
+                schema_registry.get(schema_name)
+            except KeyError:
+                from cys_core.application.runtime_config import get_use_dynamic_catalog
+
+                if not get_use_dynamic_catalog():
+                    raise
         existing = self.catalog.get_agent(name)
         entry = AgentCatalogEntry(
             name=name,
             description=body.get("description", ""),
             role=body.get("role", "worker"),
-            output_schema=body.get("output_schema"),
+            output_schema=schema_name,
             tools=body.get("tools", []),
             skills=body.get("skills", []),
+            capabilities=body.get("capabilities", existing.capabilities if existing else []),
             trust_level=body.get("trust_level", "internal"),
             bus_recipients=body.get("bus_recipients", []),
             enabled=body.get("enabled", True),
             profile_id=body.get("profile_id", "cybersec-soc"),
-            system_prompt=existing.system_prompt if existing else "",
+            system_prompt=body.get("system_prompt", existing.system_prompt if existing else ""),
             system_prompt_digest=existing.system_prompt_digest if existing else "",
+            version_tag=body.get("version_tag", existing.version_tag if existing else ""),
+            quality=existing.quality if existing else PersonaQuality(),
             source=CatalogSource.API,
+            budget_max_tokens=body.get("budget_max_tokens", existing.budget_max_tokens if existing else None),
+            budget_max_cost_usd=body.get("budget_max_cost_usd", existing.budget_max_cost_usd if existing else None),
+            budget_max_tool_calls=body.get("budget_max_tool_calls", existing.budget_max_tool_calls if existing else None),
+            data_clearance=body.get("data_clearance", existing.data_clearance if existing else "internal"),
         )
-        saved = self.catalog.upsert_agent(entry)
-        if self.record_audit is not None:
-            self.record_audit("upsert", agent=name, actor=actor, details={"version": saved.version})
-        self.reload()
+        if self._write_gate is not None:
+            saved = self._write_gate.upsert_agent(entry, actor=actor)
+        else:
+            saved = self.catalog.upsert_agent(entry)
+            self.reload()
         return saved

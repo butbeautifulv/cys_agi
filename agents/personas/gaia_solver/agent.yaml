@@ -1,0 +1,24 @@
+name: gaia_solver
+description: GAIA benchmark profile — research, code, and typed answer extraction
+role: worker
+output_schema: ConductorStepResult
+capabilities:
+  - capability:web
+  - capability:code
+  - capability:documents
+tools:
+  - web_search
+  - read_document
+  - vision_analyze
+  - search_archived_webpage
+  - python_sandbox
+  - reasoning_check
+  - extract_structured_output
+  - delegate_research
+skills: []
+hitl_tools: {}
+trust_level: internal
+bus_recipients:
+  - critic
+language: en
+sample: samples/default.txt

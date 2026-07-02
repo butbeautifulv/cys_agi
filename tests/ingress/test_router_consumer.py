@@ -4,7 +4,7 @@ import pytest
 
 from cys_core.domain.events.models import SecurityEvent
 from cys_core.domain.events.plans import load_plan_routing
-from cys_core.domain.events.router import EventRouter
+from cys_core.application.routing.event_router import EventRouter
 from interfaces.ingress.router_consumer import RouterConsumer
 from interfaces.worker.orchestrator import WorkerOrchestrator
 

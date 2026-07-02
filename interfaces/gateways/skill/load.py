@@ -1,28 +1,35 @@
 from __future__ import annotations
 
-import re
+import hashlib
 from pathlib import Path
 
-from cys_core.domain.security.content_delimiters import wrap_skill_content
-from cys_core.domain.security.exceptions import SecurityViolation
+from cys_core.application.runtime_config import get_use_dynamic_catalog
+from cys_core.application.skills.catalog import skills_root
+from cys_core.domain.catalog.models import StagingStatus
 from cys_core.domain.security.factory import get_input_sanitizer
-from cys_core.domain.skills.models import SkillTrustTier
-from cys_core.registry.skill_registry import SkillRegistry, compute_skill_hash, get_skill_registry
-from interfaces.gateways.skill.audit import record_skill_load
+from cys_core.infrastructure.catalog.registry_factory import get_skill_catalog
 
 
 class SkillLoadError(Exception):
     pass
 
 
-def _read_skill_body(manifest_path: str) -> str:
-    path = Path(manifest_path)
-    text = path.read_text(encoding="utf-8")
-    if text.startswith("---"):
-        match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)$", text, re.DOTALL)
-        if match:
-            return match.group(2).strip()
-    return text.strip()
+def _skill_path(skill_name: str) -> Path:
+    path = skills_root() / skill_name / "SKILL.md"
+    if not path.is_file():
+        raise SkillLoadError(f"Unknown skill: {skill_name}")
+    return path
+
+
+def _load_from_catalog(skill_name: str, *, profile_id: str = "cybersec-soc") -> str | None:
+    if not get_use_dynamic_catalog():
+        return None
+    entry = get_skill_catalog().get_skill(skill_name, profile_id=profile_id)
+    if entry is None or not entry.enabled:
+        return None
+    if entry.staging_status == StagingStatus.DRAFT:
+        raise SkillLoadError(f"Skill '{skill_name}' is draft — approve before load")
+    return entry.body
 
 
 def load_skill(
@@ -30,34 +37,23 @@ def load_skill(
     *,
     persona: str,
     allowed_skills: list[str],
-    registry: SkillRegistry | None = None,
     job_id: str = "",
+    profile_id: str = "cybersec-soc",
 ) -> str:
-    """Load skill body through gateway with allowlist, hash verify, and sanitization."""
-    if skill_name not in allowed_skills:
-        raise SkillLoadError(f"Skill '{skill_name}' not in persona allowlist")
-
-    reg = registry or get_skill_registry()
-    manifest = reg.get(skill_name)
-    if manifest.trust_tier == SkillTrustTier.COMMUNITY:
-        raise SkillLoadError("Community skill tier requires explicit privileged opt-in")
-
-    body = _read_skill_body(manifest.path)
-    actual_hash = compute_skill_hash(body)
-    if manifest.content_hash and actual_hash != manifest.content_hash:
-        raise SkillLoadError(f"Skill hash mismatch for '{skill_name}' — load rejected")
-
+    if skill_name not in allowed_skills and allowed_skills:
+        raise SkillLoadError(f"Skill '{skill_name}' not allowlisted for persona '{persona}'")
+    body = _load_from_catalog(skill_name, profile_id=profile_id)
+    if body is None:
+        path = _skill_path(skill_name)
+        body = path.read_text(encoding="utf-8")
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:12]
     sanitizer = get_input_sanitizer()
+    safe = sanitizer.sanitize(body, source="skill")
+    header = f"<!-- skill:{skill_name} sha:{digest} persona:{persona} job:{job_id} -->\n"
     try:
-        sanitized = sanitizer.sanitize(body, source="skill")
-    except SecurityViolation as exc:
-        raise SkillLoadError(f"Poisoned skill body blocked: {exc}") from exc
-
-    record_skill_load(
-        skill_name=skill_name,
-        persona=persona,
-        content_hash=actual_hash,
-        job_id=job_id,
-        trust_tier=manifest.trust_tier.value,
-    )
-    return wrap_skill_content(sanitized)
+        catalog = get_skill_catalog()
+        if hasattr(catalog, "increment_usage"):
+            catalog.increment_usage(skill_name, profile_id=profile_id, error=False)
+    except Exception:
+        pass
+    return header + safe

@@ -1,39 +1,23 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
-
-from cys_core.domain.workers.models import WorkerJob
-
-
-class PersonaBudget(BaseModel):
-    max_tokens: int
-    max_cost_usd: float
-    max_tool_calls: int = 50
+from cys_core.domain.catalog.models import AgentCatalogEntry
+from cys_core.domain.policy.defaults import PERSONA_BUDGETS
+from cys_core.domain.policy.pure import persona_budget_pure
+from cys_core.domain.workers.models import DEFAULT_BUDGET, PersonaBudget, WorkerJob
 
 
-PERSONA_BUDGETS: dict[str, PersonaBudget] = {
-    "soc": PersonaBudget(max_tokens=50_000, max_cost_usd=2.0),
-    "network": PersonaBudget(max_tokens=50_000, max_cost_usd=2.0),
-    "compliance": PersonaBudget(max_tokens=40_000, max_cost_usd=1.5),
-    "redteam": PersonaBudget(max_tokens=80_000, max_cost_usd=5.0),
-    "intel": PersonaBudget(max_tokens=45_000, max_cost_usd=2.0),
-    "hunter": PersonaBudget(max_tokens=55_000, max_cost_usd=2.5),
-    "identity": PersonaBudget(max_tokens=50_000, max_cost_usd=2.0),
-    "dfir": PersonaBudget(max_tokens=60_000, max_cost_usd=3.0),
-    "cloud": PersonaBudget(max_tokens=50_000, max_cost_usd=2.0),
-    "purple": PersonaBudget(max_tokens=45_000, max_cost_usd=1.5),
-    "consultant": PersonaBudget(max_tokens=35_000, max_cost_usd=1.0),
-}
+def persona_budget(persona: str, entry: AgentCatalogEntry | None = None) -> PersonaBudget:
+    if entry is None:
+        try:
+            from cys_core.infrastructure.catalog.hybrid_registry import get_agent_catalog
 
-DEFAULT_BUDGET = PersonaBudget(max_tokens=40_000, max_cost_usd=2.0)
-
-
-def persona_budget(persona: str) -> PersonaBudget:
-    return PERSONA_BUDGETS.get(persona, DEFAULT_BUDGET)
+            entry = get_agent_catalog().get_agent(persona)
+        except Exception:
+            entry = None
+    return persona_budget_pure(persona, entry)
 
 
 def enrich_job_budget(job: WorkerJob) -> WorkerJob:
-    """Apply persona defaults for unset budget fields."""
     budget = persona_budget(job.persona)
     return job.model_copy(
         update={
@@ -42,3 +26,6 @@ def enrich_job_budget(job: WorkerJob) -> WorkerJob:
             "max_tool_calls": job.max_tool_calls or budget.max_tool_calls,
         }
     )
+
+
+__all__ = ["PERSONA_BUDGETS", "DEFAULT_BUDGET", "PersonaBudget", "persona_budget", "enrich_job_budget"]

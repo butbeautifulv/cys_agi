@@ -10,6 +10,7 @@ class TodoStatus(str, Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     DONE = "done"
+    FAILED = "failed"
     CANCELLED = "cancelled"
 
 
@@ -33,9 +34,41 @@ class WorkPlan(BaseModel):
     proposed_workers: list[str] = Field(default_factory=list)
     rationale: str = ""
     awaiting_user_input: bool = False
+    reasoning_steps: list[str] = Field(default_factory=list)
+    plan_status: str = ""
+    enough_data: bool = False
+    remaining_steps: list[str] = Field(default_factory=list)
 
 
 class PlanApproval(BaseModel):
     decision: Literal["approve", "reject", "edit"]
     edited_plan: WorkPlan | None = None
     actor: str = "operator"
+
+
+class InvestigationPlanStep(BaseModel):
+    """SGR-aligned plan step metadata for investigations."""
+
+    plan_status: str = ""
+    remaining_steps: list[str] = Field(default_factory=list)
+    enough_data: bool = False
+
+
+class GeneratePlanPayload(BaseModel):
+    """Initial investigation plan (SGR GeneratePlanTool analogue)."""
+
+    reasoning_steps: list[str] = Field(min_length=2, max_length=3)
+    plan_status: str = Field(max_length=150)
+    personas: list[str] = Field(default_factory=list)
+    sub_goals: list[str] = Field(default_factory=list)
+    rationale: str = ""
+
+
+class AdaptPlanPayload(BaseModel):
+    """Plan revision after new findings (SGR AdaptPlanTool analogue)."""
+
+    reasoning_steps: list[str] = Field(min_length=2, max_length=3)
+    plan_status: str = Field(max_length=150)
+    remaining_steps: list[str] = Field(default_factory=list, max_length=3)
+    plan_delta: WorkPlan | None = None
+    enough_data: bool = False

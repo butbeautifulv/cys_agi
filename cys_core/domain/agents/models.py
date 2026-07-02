@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from cys_core.domain.reasoning.sgr_models import SgrMode
+
 
 class AgentConfig(BaseModel):
     """Parsed product agent.yaml configuration."""
@@ -21,6 +23,8 @@ class AgentConfig(BaseModel):
     language: str = "ru"
     sample: str = "samples/default.txt"
     interrupt_on: dict[str, bool] = Field(default_factory=dict)
+    capabilities: list[str] = Field(default_factory=list)
+    reasoning_mode: SgrMode = "off"
 
 
 class AgentDefinition(BaseModel):
@@ -40,6 +44,8 @@ class AgentDefinition(BaseModel):
     sample_input: str | None = None
     interrupt_on: dict[str, bool] = Field(default_factory=dict)
     skill_path: Path | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    reasoning_mode: SgrMode = "off"
 
     @property
     def allowed_tools(self) -> set[str]:

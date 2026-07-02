@@ -1,6 +1,7 @@
 name: intel
 description: Threat intelligence and reconnaissance analysis
 role: worker
+reasoning_mode: sgr_hybrid
 output_schema: IntelFinding
 tools:
   - ti_search_in_category

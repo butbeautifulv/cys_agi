@@ -33,3 +33,9 @@ routing:
 Загрузка: `EventRouter.from_plans_dir(agents/plans/)`.
 
 CLI `session -g "..."` отправляет `manual.investigation` event.
+
+## Deferred patterns
+
+**Tree of Thoughts (ToT) / Graph of Thoughts (GoT)** — intentionally not implemented.
+Linear `todo_snapshot` + hierarchical spawn (`delegate_research`, `spawn_worker`) cover planning without exponential branch cost.
+

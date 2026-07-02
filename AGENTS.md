@@ -19,6 +19,8 @@ Follow `.agents/rules/core-*.mdc` (hub) + `project-workflow.mdc` + `project-secu
 
 Master plan: [docs/MASTER_PLAN_SECURE_PLATFORM.md](docs/MASTER_PLAN_SECURE_PLATFORM.md)
 
+SGR (Schema-Guided Reasoning): [docs/integration/sgr-reasoning.md](docs/integration/sgr-reasoning.md) — pattern port only; **no** runtime imports from `shared/references/sgr-agent-core-main`.
+
 ## Два разных «agents» (историческая заметка)
 
 | Слой | Путь | В git | Назначение |

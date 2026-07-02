@@ -8,7 +8,7 @@ def test_monitor_logging_redaction_and_anomaly(monkeypatch):
     from cys_core.security.monitor import AgentMonitor
 
     monitor = AgentMonitor("agent")
-    monkeypatch.setitem(monitor.ANOMALY_THRESHOLDS, "tool_calls_per_minute", 1)
+    monkeypatch.setitem(monitor._thresholds, "tool_calls_per_minute", 1)
 
     monitor.log_tool_call(
         "session",

@@ -26,3 +26,9 @@ class RunState(BaseModel):
     pending_questions: list[ClarifyingQuestion] = Field(default_factory=list)
     todos: list[WorkTodo] = Field(default_factory=list)
     last_result: dict[str, Any] = Field(default_factory=dict)
+    step_count: int = 0
+    context_summary: str = ""
+    reasoning_notes: list[str] = Field(default_factory=list)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    last_trace_verdict: dict[str, Any] = Field(default_factory=dict)
+    trace_rerun_count: int = 0

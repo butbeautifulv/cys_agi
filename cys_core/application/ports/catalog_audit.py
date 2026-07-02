@@ -11,4 +11,8 @@ class CatalogAuditPort(Protocol):
         agent: str,
         actor: str = "api",
         details: dict[str, Any] | None = None,
+        resource_type: str = "agent",
+        resource_id: str | None = None,
     ) -> None: ...
+
+    def list_entries(self, *, limit: int = 50) -> list[dict[str, Any]]: ...

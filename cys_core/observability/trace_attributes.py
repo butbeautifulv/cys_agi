@@ -59,6 +59,19 @@ def build_job_trace_metadata(
     }
 
 
+def build_sgr_trace_metadata(
+    *,
+    phase: str,
+    task_completed: bool = False,
+    enough_data: bool = False,
+) -> dict[str, str]:
+    return {
+        "sgr.phase": phase,
+        "sgr.task_completed": str(task_completed).lower(),
+        "sgr.enough_data": str(enough_data).lower(),
+    }
+
+
 def to_langfuse_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     """Map neutral keys to Langfuse CallbackHandler v4 metadata keys."""
     out = dict(metadata)

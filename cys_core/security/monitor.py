@@ -6,6 +6,7 @@ from typing import Any
 
 import structlog
 
+from cys_core.domain.catalog.models import AnomalyPolicy
 from cys_core.domain.security.redaction import RedactionService
 
 logger = structlog.get_logger()
@@ -34,10 +35,45 @@ class AgentMonitor:
         "sensitive_data_access": 3,
     }
 
-    def __init__(self, agent_id: str) -> None:
+    def __init__(
+        self,
+        agent_id: str,
+        *,
+        profile_id: str = "cybersec-soc",
+        anomaly_policy: AnomalyPolicy | None = None,
+    ) -> None:
         self.agent_id = agent_id
+        self.profile_id = profile_id
         self.session_metrics: dict[str, dict[str, Any]] = {}
         self.events: list[AgentSecurityEvent] = []
+        self._thresholds = self._thresholds_from_policy(anomaly_policy or AnomalyPolicy())
+
+    @staticmethod
+    def _thresholds_from_policy(anomaly: AnomalyPolicy) -> dict[str, int]:
+        return {
+            "tool_calls_per_minute": anomaly.tool_calls_per_minute,
+            "failed_tool_calls": anomaly.failed_tool_calls,
+            "injection_attempts": anomaly.injection_attempts,
+            "sensitive_data_access": anomaly.sensitive_data_access,
+        }
+
+    def log_orchestration_tool(
+        self,
+        session_id: str,
+        tool_name: str,
+        params: dict[str, Any],
+        *,
+        outcome: str = "ok",
+        user_id: str = "system",
+    ) -> None:
+        """Audit conductor orchestration tools (spawn, delegate, extract)."""
+        self.log_tool_call(
+            session_id,
+            tool_name,
+            params,
+            {"status": outcome, "orchestration": True},
+            user_id=user_id,
+        )
 
     def log_tool_call(
         self,
@@ -82,7 +118,7 @@ class AgentMonitor:
             {"verdict": verdict, **details},
             user_id=user_id,
         )
-        if metrics["injection_attempts"] > self.ANOMALY_THRESHOLDS["injection_attempts"]:
+        if metrics["injection_attempts"] > self._thresholds["injection_attempts"]:
             self.log_security_event(
                 session_id,
                 "anomaly_detected",
@@ -129,7 +165,7 @@ class AgentMonitor:
         metrics = self.session_metrics.setdefault(session_id, {"tool_calls": [], "failed_calls": 0})
         metrics["tool_calls"].append(datetime.now(timezone.utc))
         recent = [t for t in metrics["tool_calls"] if (datetime.now(timezone.utc) - t).total_seconds() < 60]
-        if len(recent) > self.ANOMALY_THRESHOLDS["tool_calls_per_minute"]:
+        if len(recent) > self._thresholds["tool_calls_per_minute"]:
             self.log_security_event(
                 session_id,
                 "anomaly_detected",

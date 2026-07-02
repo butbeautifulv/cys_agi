@@ -8,13 +8,23 @@ _audit_log: list[dict[str, Any]] = []
 _lock = threading.Lock()
 
 
-def record_catalog_change(action: str, *, agent: str, actor: str = "api", details: dict[str, Any] | None = None) -> None:
+def record_catalog_change(
+    action: str,
+    *,
+    agent: str,
+    actor: str = "api",
+    details: dict[str, Any] | None = None,
+    resource_type: str = "agent",
+    resource_id: str | None = None,
+) -> None:
     with _lock:
         _audit_log.append(
             {
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "action": action,
                 "agent": agent,
+                "resource_type": resource_type,
+                "resource_id": resource_id or agent,
                 "actor": actor,
                 "details": details or {},
             }

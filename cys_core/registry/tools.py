@@ -5,6 +5,7 @@ import json
 from langchain_core.tools import BaseTool, tool
 
 from cys_core.application.ports.tool_backend import ToolBackend
+from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID, resolve_profile_id
 
 _tool_backend: ToolBackend | None = None
 
@@ -214,17 +215,199 @@ def ask_user(question: str, *, context_id: str = "", tenant_id: str = "default")
 
 
 @tool
+def web_search(query: str, limit: int = 5) -> str:
+    """Search the public web for OSINT and factual references (read-only)."""
+    from interfaces.gateways.tool.adapters.web_search import web_search as _search
+
+    return json.dumps(_search(query, limit=limit), ensure_ascii=False)
+
+
+@tool
+def read_document(path: str) -> str:
+    """Read a local document attachment (txt, md, json, csv, pdf stub)."""
+    from interfaces.gateways.tool.adapters.read_document import read_document as _read
+
+    return json.dumps(_read(path), ensure_ascii=False)
+
+
+@tool
+def reasoning_step(
+    reasoning_steps: list[str],
+    current_situation: str,
+    plan_status: str,
+    task_completed: bool,
+    remaining_steps: list[str] | None = None,
+    enough_data: bool = False,
+) -> str:
+    """Mandatory schema-guided reasoning step before action tools (SGR)."""
+    from cys_core.domain.reasoning.sgr_models import SchemaGuidedReasoningStep
+    from cys_core.security.monitor import AgentMonitor
+
+    step = SchemaGuidedReasoningStep(
+        reasoning_steps=reasoning_steps,
+        current_situation=current_situation,
+        plan_status=plan_status,
+        remaining_steps=remaining_steps or [],
+        enough_data=enough_data,
+        task_completed=task_completed,
+    )
+    AgentMonitor("sgr").log_orchestration_tool(
+        "reasoning",
+        "reasoning_step",
+        {"steps": len(step.reasoning_steps), "task_completed": step.task_completed},
+    )
+    return json.dumps(step.model_dump(), ensure_ascii=False)
+
+
+@tool
+def reasoning_check(goal: str, trace_json: str) -> str:
+    """Review full action trace before final synthesis (DeepAgent reasoning step)."""
+    from cys_core.application.use_cases.evaluate_trace_critic import EvaluateTraceCritic
+    from cys_core.security.monitor import AgentMonitor
+
+    AgentMonitor("conductor").log_orchestration_tool("reasoning", "reasoning_check", {"goal": goal[:120]})
+    critic = EvaluateTraceCritic()
+    verdict = critic.execute(goal=goal, trace=trace_json)
+    return json.dumps(verdict.model_dump(), ensure_ascii=False)
+
+
+@tool
+def extract_structured_output(goal: str, agent_summary: str, schema_type: str = "") -> str:
+    """Extract structured deliverable with confidence and weaknesses."""
+    from cys_core.application.runtime_config import get_self_consistency_n
+    from cys_core.application.use_cases.extract_structured_output import (
+        build_structured_extraction_prompt,
+        detect_output_schema,
+        parse_structured_output,
+    )
+    from cys_core.security.monitor import AgentMonitor
+    from bootstrap.settings import get_settings
+
+    AgentMonitor("conductor").log_orchestration_tool(
+        "extract",
+        "extract_structured_output",
+        {"goal": goal[:120], "schema": schema_type or "auto"},
+    )
+    schema = schema_type or detect_output_schema(goal)
+    prompt = build_structured_extraction_prompt(goal=goal, schema_type=schema, agent_summary=agent_summary)
+    if get_settings().reasoning_model.strip():
+        from cys_core.llm.reasoning import get_reasoning_model_connector
+
+        model = get_reasoning_model_connector().create_model()
+    else:
+        from cys_core.llm import get_model_connector
+
+        model = get_model_connector().create_model()
+    n = max(1, get_self_consistency_n() or 1)
+    candidates: list[dict] = []
+    for _ in range(n):
+        response = model.invoke(prompt)
+        text = str(getattr(response, "content", response))
+        candidates.append(parse_structured_output(text))
+    if n == 1:
+        return json.dumps(candidates[0], ensure_ascii=False)
+    payloads = [c.get("payload") for c in candidates if isinstance(c.get("payload"), dict)]
+    merged = candidates[0]
+    if payloads:
+        merged["payload"] = payloads[0]
+        merged["self_consistency"] = {"samples": len(candidates), "payloads": payloads}
+    return json.dumps(merged, ensure_ascii=False)
+
+
+@tool
+def python_sandbox(code: str) -> str:
+    """Execute Python code in a restricted local subprocess. Requires HITL approval."""
+    from interfaces.gateways.tool.adapters.multimodal import python_sandbox as _run
+
+    return json.dumps(_run(code), ensure_ascii=False)
+
+
+@tool
+def vision_analyze(path: str, question: str = "Describe this image in detail.") -> str:
+    """Analyze image attachments (charts, screenshots, diagrams)."""
+    from interfaces.gateways.tool.adapters.multimodal import vision_analyze as _vision
+
+    return json.dumps(_vision(path, question=question), ensure_ascii=False)
+
+
+@tool
+def search_archived_webpage(url: str, timestamp: str = "") -> str:
+    """Retrieve historical webpage content via Wayback Machine."""
+    from interfaces.gateways.tool.adapters.multimodal import search_archived_webpage as _archive
+
+    return json.dumps(_archive(url, timestamp=timestamp), ensure_ascii=False)
+
+
+@tool
+def delegate_research(subtask: str, *, context_id: str = "", tenant_id: str = "default") -> str:
+    """Delegate a read-only research subtask to the research persona in-process."""
+    from cys_core.application.use_cases.delegate_research import DelegateResearch
+    from cys_core.infrastructure.catalog.hybrid_registry import get_agent_catalog
+    from cys_core.runtime.agent import get_runtime
+
+    use_case = DelegateResearch(runtime=get_runtime(), catalog=get_agent_catalog())
+    payload = use_case.execute_sync(subtask, context_id=context_id, tenant_id=tenant_id)
+    return json.dumps(payload, ensure_ascii=False)
+
+
+@tool
+def plan_tool_calls(goal: str, steps_json: str) -> str:
+    """ReWOO-style upfront tool plan (search → read → extract) without reactive loops."""
+    try:
+        steps = json.loads(steps_json) if steps_json.strip().startswith("[") else []
+    except json.JSONDecodeError:
+        steps = []
+    return json.dumps({"goal": goal, "planned_steps": steps, "status": "planned"}, ensure_ascii=False)
+
+
+@tool
+def create_report_outline(title: str, sections_json: str = "[]") -> str:
+    """Skeleton-of-Thoughts: create report outline before section fill."""
+    try:
+        sections = json.loads(sections_json) if sections_json.strip().startswith("[") else []
+    except json.JSONDecodeError:
+        sections = []
+    if not sections:
+        sections = ["summary", "findings", "recommendations"]
+    return json.dumps({"title": title, "sections": sections}, ensure_ascii=False)
+
+
+@tool
+def browser_use(url: str, action: str = "navigate") -> str:
+    """Headless browser actions. Disabled unless BROWSER_ENABLED=true."""
+    from cys_core.application.runtime_config import get_browser_enabled
+    from cys_core.security.monitor import AgentMonitor
+
+    AgentMonitor("conductor").log_orchestration_tool("browser", "browser_use", {"url": url, "action": action})
+    if not get_browser_enabled():
+        return json.dumps(
+            {"success": False, "error": "browser disabled", "hint": "set BROWSER_ENABLED=true with HITL"},
+            ensure_ascii=False,
+        )
+    return json.dumps({"success": False, "stub": True, "url": url, "action": action}, ensure_ascii=False)
+
+
+@tool
+def transcribe_audio(path: str) -> str:
+    """Transcribe audio attachment (stub — wire STT provider in production)."""
+    return json.dumps(
+        {"success": False, "path": path, "note": "STT stub — integrate Whisper or cloud STT"},
+        ensure_ascii=False,
+    )
+
+
+@tool
 def update_todos(todos_json: str, *, context_id: str = "", tenant_id: str = "default") -> str:
     """Replace work todos for the active run context."""
     from cys_core.domain.runs.plan_models import WorkTodo
-    from cys_core.infrastructure.runs.todo_store import InMemoryWorkTodoStore
+    from cys_core.infrastructure.runs.factory import get_work_todo_store
 
     try:
         raw = json.loads(todos_json) if todos_json.strip().startswith("[") else []
     except json.JSONDecodeError:
         raw = []
     todos = [WorkTodo.model_validate(item) for item in raw]
-    store = InMemoryWorkTodoStore()
+    store = get_work_todo_store()
     if context_id:
         store.replace_todos(tenant_id, context_id, todos)
     return json.dumps({"updated": len(todos), "context_id": context_id}, ensure_ascii=False)
@@ -252,26 +435,74 @@ _ALL_TOOLS: list[BaseTool] = [
     search_tools,
     ask_user,
     update_todos,
+    web_search,
+    read_document,
+    reasoning_step,
+    reasoning_check,
+    extract_structured_output,
+    python_sandbox,
+    vision_analyze,
+    search_archived_webpage,
+    delegate_research,
+    plan_tool_calls,
+    create_report_outline,
+    browser_use,
+    transcribe_audio,
 ]
+
+_BUILTIN_TOOL_NAMES: list[str] = [tool.name for tool in _ALL_TOOLS]
 
 from cys_core.registry.veil_tools import build_veil_tools
 
 _ALL_TOOLS.extend(build_veil_tools())
 
 
+def list_tools(*, profile_id: str = DEFAULT_PROFILE_ID, enabled_only: bool = True) -> list[str]:
+    from cys_core.domain.security.profile_tools import filter_tools_for_profile
+
+    names = tool_registry.names()
+    return filter_tools_for_profile(names, profile_id)
+
+
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, BaseTool] = {t.name: t for t in _ALL_TOOLS}
+        self._load_catalog_overrides()
+
+    def _load_catalog_overrides(self) -> None:
+        try:
+            from cys_core.application.runtime_config import get_use_dynamic_catalog
+            from cys_core.infrastructure.catalog.registry_factory import get_tool_catalog
+
+            if not get_use_dynamic_catalog():
+                return
+            for entry in get_tool_catalog().list_tools(enabled_only=True):
+                if entry.enabled and entry.name in self._tools:
+                    tool = self._tools[entry.name]
+                    if entry.description and hasattr(tool, "description"):
+                        tool.description = entry.description
+        except Exception:
+            return
+
+    def reload(self) -> None:
+        self._tools = {t.name: t for t in _ALL_TOOLS}
+        self._tools.update({t.name: t for t in build_veil_tools()})
+        self._load_catalog_overrides()
 
     def get(self, name: str) -> BaseTool:
         if name not in self._tools:
             raise KeyError(f"Unknown tool: {name}")
         return self._tools[name]
 
-    def resolve(self, names: list[str]) -> list[BaseTool]:
-        return [self.get(n) for n in names]
+    def resolve(self, names: list[str], profile_id: str = DEFAULT_PROFILE_ID) -> list[BaseTool]:
+        from cys_core.domain.security.profile_tools import filter_tools_for_profile
 
-    def names(self) -> list[str]:
+        filtered = filter_tools_for_profile(names, profile_id)
+        return [self.get(n) for n in filtered]
+
+    def names(self, *, profile_id: str | None = None) -> list[str]:
+        if profile_id:
+            return list_tools(profile_id=profile_id)
         return list(self._tools.keys())
 
 

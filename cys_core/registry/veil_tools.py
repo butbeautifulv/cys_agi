@@ -5,10 +5,9 @@ from typing import Any
 
 from langchain_core.tools import BaseTool, StructuredTool
 
-from cys_core.integrations.veil_mcp_client import VEIL_MCP_TOOL_NAMES
+from cys_core.integrations.veil_mcp_client import get_veil_allowed_tools
 
-# Descriptions aligned with Veil knowledge MCP (read-only).
-VEIL_TOOL_DESCRIPTIONS: dict[str, str] = {
+_VEIL_TOOL_DESCRIPTIONS: dict[str, str] = {
     "ti_list_categories": "List Veil graph product categories (vuln, ti, mitre, playbook, …).",
     "ti_list_kinds_in_category": "List Neo4j node labels within a Veil category with counts.",
     "ti_nodes_by_category": "List graph nodes for a category + kind label.",
@@ -36,9 +35,21 @@ def make_veil_tool(name: str, description: str) -> BaseTool:
     return StructuredTool.from_function(func=_run, name=name, description=description)
 
 
-def build_veil_tools() -> list[BaseTool]:
+def _description_for_veil_tool(name: str, profile_id: str = "cybersec-soc") -> str:
+    try:
+        from cys_core.infrastructure.catalog.registry_factory import get_tool_catalog
+
+        entry = get_tool_catalog().get_tool(name, profile_id=profile_id)
+        if entry and entry.description:
+            return entry.description
+    except Exception:
+        pass
+    return _VEIL_TOOL_DESCRIPTIONS.get(name, f"Veil knowledge MCP tool: {name}")
+
+
+def build_veil_tools(*, profile_id: str = "cybersec-soc") -> list[BaseTool]:
     tools: list[BaseTool] = []
-    for name in sorted(VEIL_MCP_TOOL_NAMES):
-        desc = VEIL_TOOL_DESCRIPTIONS.get(name, f"Veil knowledge MCP tool: {name}")
+    for name in sorted(get_veil_allowed_tools(profile_id)):
+        desc = _description_for_veil_tool(name, profile_id)
         tools.append(make_veil_tool(name, desc))
     return tools

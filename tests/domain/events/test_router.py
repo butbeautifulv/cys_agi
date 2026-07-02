@@ -2,7 +2,7 @@ import pytest
 
 from cys_core.domain.events.models import RoutingRule, SecurityEvent
 from cys_core.domain.events.plans import PlanRoutingConfig, load_plan_routing, rule_matches, severity_at_least
-from cys_core.domain.events.router import EventRouter
+from cys_core.application.routing.event_router import EventRouter
 
 
 @pytest.mark.unit

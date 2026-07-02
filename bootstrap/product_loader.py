@@ -82,6 +82,8 @@ def _load_agent_from_dir(agent_dir: Path, product: ProductContext) -> AgentDefin
         sample_input=sample_input,
         interrupt_on=config.interrupt_on,
         skill_path=agent_dir,
+        capabilities=config.capabilities,
+        reasoning_mode=config.reasoning_mode,
     )
 
 

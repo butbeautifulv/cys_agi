@@ -4,15 +4,25 @@ import json
 
 import psycopg
 
-from cys_core.domain.catalog.models import AgentCatalogEntry, CatalogSource, CatalogVersion, ProfilePack
-from cys_core.infrastructure.catalog.hybrid_registry import ensure_catalog_schema
+from cys_core.domain.catalog.models import (
+    AgentCatalogEntry,
+    CatalogSource,
+    CatalogVersion,
+    McpServerEntry,
+    PlanCatalogEntry,
+    ProfilePack,
+    SkillCatalogEntry,
+)
+from cys_core.infrastructure.catalog.catalog_seed_writer import fan_out_secondary_catalogs
+from cys_core.infrastructure.catalog.schema import CATALOG_SCHEMA_SQL
 
 
 class PostgresAgentCatalog:
     def __init__(self, postgres_url: str) -> None:
         self._postgres_url = postgres_url
         with psycopg.connect(self._postgres_url) as conn:
-            ensure_catalog_schema(conn)
+            conn.execute(CATALOG_SCHEMA_SQL)
+            conn.commit()
 
     def _connect(self) -> psycopg.Connection:
         return psycopg.connect(self._postgres_url)
@@ -44,6 +54,7 @@ class PostgresAgentCatalog:
         existing = self.get_agent(entry.name)
         if existing is not None:
             entry.version = existing.version + 1
+            entry.quality = existing.quality
         entry.source = CatalogSource.API
         payload = entry.model_dump(mode="json")
         with self._connect() as conn:
@@ -62,6 +73,27 @@ class PostgresAgentCatalog:
             conn.commit()
         return entry
 
+    def delete_agent(self, name: str, *, profile_id: str = "cybersec-soc") -> bool:
+        entry = self.get_agent(name)
+        if entry is None or entry.profile_id != profile_id:
+            return False
+        entry.enabled = False
+        self.upsert_agent(entry)
+        return True
+
+    def upsert_profile(self, profile: ProfilePack) -> ProfilePack:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO profile_packs (id, payload, updated_at)
+                VALUES (%s, %s::jsonb, NOW())
+                ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()
+                """,
+                (profile.id, json.dumps(profile.model_dump(mode="json"))),
+            )
+            conn.commit()
+        return profile
+
     def list_profiles(self) -> list[ProfilePack]:
         with self._connect() as conn:
             rows = conn.execute("SELECT payload FROM profile_packs ORDER BY id").fetchall()
@@ -78,7 +110,15 @@ class PostgresAgentCatalog:
             ).fetchone()
         return CatalogVersion(profile_id=profile_id, version=int(row[0] or 0), agent_count=int(row[1] or 0))
 
-    def seed(self, entries: list[AgentCatalogEntry], profile: ProfilePack) -> None:
+    def seed(
+        self,
+        entries: list[AgentCatalogEntry],
+        profile: ProfilePack,
+        *,
+        skills: list[SkillCatalogEntry] | None = None,
+        plans: list[PlanCatalogEntry] | None = None,
+        mcp_servers: list[McpServerEntry] | None = None,
+    ) -> None:
         with self._connect() as conn:
             conn.execute(
                 """
@@ -103,3 +143,4 @@ class PostgresAgentCatalog:
                     (entry.name, entry.profile_id, json.dumps(payload), entry.version, entry.enabled),
                 )
             conn.commit()
+        fan_out_secondary_catalogs(skills=skills, plans=plans, mcp_servers=mcp_servers)

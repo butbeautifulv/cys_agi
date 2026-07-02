@@ -17,6 +17,8 @@ from cys_core.domain.findings.models import (
     RedTeamFinding,
     SocFinding,
 )
+from cys_core.domain.reasoning.sgr_models import SchemaGuidedReasoningStep
+from cys_core.domain.runs.plan_models import AdaptPlanPayload, GeneratePlanPayload, InvestigationPlanStep
 
 _SCHEMAS: dict[str, type[BaseModel]] = {
     "RedTeamFinding": RedTeamFinding,
@@ -32,6 +34,10 @@ _SCHEMAS: dict[str, type[BaseModel]] = {
     "PurpleFinding": PurpleFinding,
     "ConductorStepResult": ConductorStepResult,
     "CriticResult": CriticResult,
+    "SchemaGuidedReasoningStep": SchemaGuidedReasoningStep,
+    "GeneratePlanPayload": GeneratePlanPayload,
+    "AdaptPlanPayload": AdaptPlanPayload,
+    "InvestigationPlanStep": InvestigationPlanStep,
 }
 
 

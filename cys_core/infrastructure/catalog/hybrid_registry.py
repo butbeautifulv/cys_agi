@@ -12,33 +12,18 @@ from cys_core.application.runtime_config import (
 from cys_core.application.ports.agent_definitions import AgentDefinitionsLoaderPort
 from cys_core.domain.agents.models import AgentDefinition
 from cys_core.domain.catalog.models import AgentCatalogEntry
+from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
+from cys_core.infrastructure.catalog.catalog_mapper import entry_to_definition
+from cys_core.infrastructure.catalog.catalog_singletons import CatalogSingletons
 from cys_core.infrastructure.catalog.memory import InMemoryAgentCatalog
+from cys_core.infrastructure.catalog.schema import CATALOG_SCHEMA_SQL
 
 _definitions_loader: AgentDefinitionsLoaderPort | None = None
-_entry_to_definition: object | None = None
 
-_CATALOG_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS agent_catalog (
-    name TEXT NOT NULL,
-    profile_id TEXT NOT NULL DEFAULT 'cybersec-soc',
-    payload JSONB NOT NULL,
-    version INT NOT NULL DEFAULT 1,
-    enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (name, profile_id)
-);
-CREATE TABLE IF NOT EXISTS profile_packs (
-    id TEXT PRIMARY KEY,
-    payload JSONB NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-"""
-
-_catalog_singleton: InMemoryAgentCatalog | None = None
-_catalog_lock = threading.Lock()
 _registry_cache: object | None = None
 _catalog_version: int = 0
 _bus_reload_callback: object | None = None
+_registry_lock = threading.Lock()
 
 
 def register_definitions_loader(loader: AgentDefinitionsLoaderPort) -> None:
@@ -46,31 +31,31 @@ def register_definitions_loader(loader: AgentDefinitionsLoaderPort) -> None:
     _definitions_loader = loader
 
 
-def register_entry_to_definition(fn) -> None:
-    global _entry_to_definition
-    _entry_to_definition = fn
-
-
 def register_bus_reload_callback(callback) -> None:
     global _bus_reload_callback
     _bus_reload_callback = callback
 
 
-def get_agent_catalog():
-    global _catalog_singleton
-    with _catalog_lock:
-        if _catalog_singleton is None:
-            if get_use_dynamic_catalog() and not get_use_memory_fallback():
-                from cys_core.infrastructure.catalog.postgres import PostgresAgentCatalog
+def _default_definitions_loader() -> AgentDefinitionsLoaderPort:
+    from bootstrap.agent_definitions_loader import get_default_agent_definitions_loader
 
-                _catalog_singleton = PostgresAgentCatalog(get_postgres_url())
-            else:
-                _catalog_singleton = InMemoryAgentCatalog()
-        return _catalog_singleton
+    return get_default_agent_definitions_loader()
+
+
+def _create_agent_catalog():
+    if get_use_dynamic_catalog() and not get_use_memory_fallback():
+        from cys_core.infrastructure.catalog.postgres import PostgresAgentCatalog
+
+        return PostgresAgentCatalog(get_postgres_url())
+    return InMemoryAgentCatalog()
+
+
+def get_agent_catalog():
+    return CatalogSingletons.get("agent_catalog", _create_agent_catalog)
 
 
 def ensure_catalog_schema(conn: psycopg.Connection) -> None:
-    conn.execute(_CATALOG_SCHEMA_SQL)
+    conn.execute(CATALOG_SCHEMA_SQL)
     conn.commit()
 
 
@@ -80,32 +65,38 @@ def load_hybrid_registry(root=None):
 
     global _registry_cache, _catalog_version
     if get_use_dynamic_catalog():
-        if _entry_to_definition is None:
-            raise RuntimeError("entry_to_definition not configured")
+        loader = _definitions_loader or _default_definitions_loader()
         catalog = get_agent_catalog()
-        if _definitions_loader is None:
-            raise RuntimeError("Agent definitions loader not configured")
-        fs_agents = _definitions_loader.load(root)
+        fs_agents = loader.load(root)
         merged: dict[str, AgentDefinition] = {}
         for name, defn in fs_agents.items():
             merged[name] = defn
         for entry in catalog.list_agents(enabled_only=True):
-            merged[entry.name] = _entry_to_definition(entry)
+            merged[entry.name] = entry_to_definition(entry)
         _registry_cache = AgentRegistry(merged)
-        _catalog_version = max((catalog.get_version("cybersec-soc").version, 1))
+        _catalog_version = max((catalog.get_version(DEFAULT_PROFILE_ID).version, 1))
         from cys_core.observability.metrics import metrics
 
         metrics.catalog_version.set(_catalog_version)
+        for profile in catalog.list_profiles():
+            version = catalog.get_version(profile.id)
+            metrics.catalog_version.labels(profile_id=profile.id).set(version.version)
         return _registry_cache
     return AgentRegistry.load(root)
 
 
 def reload_agent_registry():
-    global _registry_cache
+    global _registry_cache, _catalog_version
     from cys_core.registry.agents import get_agent_registry
+    from cys_core.registry.skill_registry import get_skill_registry
 
     get_agent_registry.cache_clear()
+    get_skill_registry.cache_clear()
     _registry_cache = load_hybrid_registry()
+    _catalog_version += 1
+    from cys_core.observability.metrics import metrics
+
+    metrics.catalog_version.labels(profile_id=DEFAULT_PROFILE_ID).set(_catalog_version)
     if _bus_reload_callback is not None:
         try:
             _bus_reload_callback(get_agent_registry())

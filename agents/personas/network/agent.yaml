@@ -1,6 +1,7 @@
 name: network
 description: Network anomaly and C2 detection
 role: worker
+reasoning_mode: sgr_hybrid
 output_schema: NetworkFinding
 tools:
   - parse_netflow

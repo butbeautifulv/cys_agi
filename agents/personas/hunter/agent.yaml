@@ -1,6 +1,7 @@
 name: hunter
 description: Proactive threat hunting for persistence and evasion
 role: worker
+reasoning_mode: sgr_hybrid
 output_schema: HunterFinding
 tools:
   - query_siem_readonly

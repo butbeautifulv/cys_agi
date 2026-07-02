@@ -12,7 +12,7 @@ from cys_core.application.runtime_config import (
 )
 
 # Read-only Veil knowledge graph + playbook tools exposed to egregore agents.
-VEIL_MCP_TOOL_NAMES: frozenset[str] = frozenset(
+FALLBACK_VEIL_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "ti_list_categories",
         "ti_list_kinds_in_category",
@@ -31,6 +31,25 @@ VEIL_MCP_TOOL_NAMES: frozenset[str] = frozenset(
     }
 )
 
+# Backward-compatible alias for imports that still reference the old name.
+VEIL_MCP_TOOL_NAMES = FALLBACK_VEIL_TOOL_NAMES
+
+
+def get_veil_allowed_tools(profile_id: str = "cybersec-soc") -> frozenset[str]:
+    try:
+        from cys_core.infrastructure.catalog.registry_factory import get_mcp_catalog
+
+        tools: set[str] = set()
+        for server in get_mcp_catalog().list_servers(profile_id=profile_id, enabled_only=True):
+            if server.id == "veil" or "veil" in server.url.lower():
+                if server.allowed_tools:
+                    tools.update(server.allowed_tools)
+        if tools:
+            return frozenset(tools)
+    except Exception:
+        pass
+    return FALLBACK_VEIL_TOOL_NAMES
+
 
 class VeilMcpError(Exception):
     """Veil MCP request failed."""
@@ -44,7 +63,7 @@ def call_veil_mcp_tool(tool_name: str, arguments: dict[str, Any] | None = None) 
     """Invoke one Veil MCP tool via streamable HTTP (POST /mcp, tools/call)."""
     if not veil_mcp_enabled():
         return {"success": False, "error": "Veil MCP disabled (VEIL_MCP_ENABLED=false)", "source": "veil-mcp"}
-    if tool_name not in VEIL_MCP_TOOL_NAMES:
+    if tool_name not in get_veil_allowed_tools():
         return {"success": False, "error": f"Veil tool not allowlisted: {tool_name}", "source": "veil-mcp"}
 
     payload = {

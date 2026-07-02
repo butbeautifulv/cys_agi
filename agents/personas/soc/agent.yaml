@@ -1,6 +1,7 @@
 name: soc
 description: SIEM correlation and incident triage
 role: worker
+reasoning_mode: sgr_hybrid
 output_schema: SocFinding
 tools:
   - dedup_alerts

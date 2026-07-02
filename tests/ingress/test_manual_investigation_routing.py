@@ -7,7 +7,7 @@ import pytest
 
 from cys_core.application.use_cases.plan_investigation import PlanInvestigation
 from cys_core.application.use_cases.route_and_enqueue import RouteAndEnqueueEvent
-from cys_core.domain.events.router import EventRouter
+from cys_core.application.routing.event_router import EventRouter
 
 
 @pytest.mark.unit

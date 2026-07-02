@@ -1,45 +1,8 @@
 from __future__ import annotations
 
-from enum import Enum
-
-
-class RiskLevel(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-    def __le__(self, other: "RiskLevel") -> bool:
-        order = [RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL]
-        return order.index(self) <= order.index(other)
-
-    def __ge__(self, other: "RiskLevel") -> bool:
-        order = [RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL]
-        return order.index(self) >= order.index(other)
-
-
-ACTION_RISK_MAPPING: dict[str, RiskLevel] = {
-    "parse_netflow": RiskLevel.LOW,
-    "enrich_ioc": RiskLevel.LOW,
-    "correlate_dns": RiskLevel.LOW,
-    "query_siem_readonly": RiskLevel.LOW,
-    "rag_query": RiskLevel.LOW,
-    "dedup_alerts": RiskLevel.LOW,
-    "build_timeline": RiskLevel.LOW,
-    "correlate_findings": RiskLevel.LOW,
-    "check_control": RiskLevel.LOW,
-    "map_framework": RiskLevel.LOW,
-    "audit_evidence": RiskLevel.LOW,
-    "read_repo_metadata": RiskLevel.LOW,
-    "parse_sast_report": RiskLevel.LOW,
-    "analyze_workflow": RiskLevel.MEDIUM,
-    "write_file": RiskLevel.MEDIUM,
-    "run_active_scan": RiskLevel.HIGH,
-    "execute_command": RiskLevel.CRITICAL,
-    "send_email": RiskLevel.HIGH,
-    "database_delete": RiskLevel.CRITICAL,
-    "transfer_funds": RiskLevel.CRITICAL,
-}
+from cys_core.domain.policy.defaults import ACTION_RISK_MAPPING
+from cys_core.domain.policy.pure import classify_tool_risk_pure
+from cys_core.domain.security.risk_level import RiskLevel
 
 SEVERITY_RISK: dict[str, RiskLevel] = {
     "critical": RiskLevel.CRITICAL,
@@ -51,8 +14,15 @@ SEVERITY_RISK: dict[str, RiskLevel] = {
 }
 
 
-def classify_tool_risk(tool_name: str) -> RiskLevel:
-    return ACTION_RISK_MAPPING.get(tool_name, RiskLevel.HIGH)
+def classify_tool_risk(tool_name: str, profile_id: str | None = None) -> RiskLevel:
+    if profile_id:
+        try:
+            from cys_core.infrastructure.catalog.profile_policy import get_profile_policy
+
+            return classify_tool_risk_pure(tool_name, get_profile_policy(profile_id))
+        except Exception:
+            pass
+    return classify_tool_risk_pure(tool_name, None)
 
 
 def classify_severity(severity: str) -> RiskLevel:
@@ -64,3 +34,6 @@ def parse_threshold(value: str) -> RiskLevel:
         return RiskLevel(value.lower())
     except ValueError:
         return RiskLevel.LOW
+
+
+__all__ = ["ACTION_RISK_MAPPING", "RiskLevel", "SEVERITY_RISK", "classify_tool_risk", "classify_severity", "parse_threshold"]

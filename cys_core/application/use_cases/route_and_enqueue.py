@@ -7,7 +7,7 @@ from typing import Any
 from cys_core.application.use_cases.dispatch_event import DispatchEvent, fallback_plan
 from cys_core.application.use_cases.plan_investigation import InvestigationPlan, PlanInvestigation
 from cys_core.domain.events.models import RoutingDecision, SecurityEvent
-from cys_core.domain.events.router import EventRouter
+from cys_core.application.routing.event_router import EventRouter
 from cys_core.observability.tracing import bind_correlation_id, reset_correlation_id
 
 

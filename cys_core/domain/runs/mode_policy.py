@@ -1,49 +1,50 @@
 from __future__ import annotations
 
+from cys_core.domain.catalog.models import ModePolicyPayload
+from cys_core.domain.policy.defaults import (
+    DEFAULT_MODE_POLICY,
+    PLAN_BLOCKED_TOOLS,
+    READ_ONLY_TOOLS,
+    MUTATING_TOOLS,
+)
+from cys_core.domain.policy.pure import allow_tool_pure, mode_sets_from_policy
 from cys_core.domain.runs.models import InteractionMode
 
-_MUTATING_TOOL_PREFIXES = ("run_", "write_", "spawn_", "execute_")
-_MUTATING_TOOLS = frozenset({"spawn_worker", "update_todos"})
-_READ_ONLY_TOOLS = frozenset(
-    {
-        "query_siem_readonly",
-        "rag_query",
-        "playbook_search",
-        "playbook_get",
-        "playbook_for_technique",
-        "playbook_procedure",
-        "playbook_framework",
-        "ti_search_in_category",
-        "search_personas",
-        "search_skills",
-        "search_tools",
-        "read_repo_metadata",
-        "parse_sast_report",
-        "parse_netflow",
-        "enrich_ioc",
-        "correlate_dns",
-        "dedup_alerts",
-        "build_timeline",
-        "correlate_findings",
-        "load_skill",
-    }
-)
 _SPAWN_BUS_TYPES = frozenset({"spawn_worker"})
-_PLAN_BLOCKED_TOOLS = _MUTATING_TOOLS | frozenset({"ask_user"})
+
+
+def _mode_sets(profile_id: str | None) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+    if profile_id:
+        try:
+            from cys_core.infrastructure.catalog.profile_policy import get_profile_policy
+
+            return mode_sets_from_policy(get_profile_policy(profile_id).mode_policy)
+        except Exception:
+            pass
+    return mode_sets_from_policy(DEFAULT_MODE_POLICY)
 
 
 class ModePolicy:
     """Pure domain policy for interaction modes."""
 
     @staticmethod
-    def allow_tool(mode: InteractionMode | None, tool_name: str) -> bool:
-        if mode is None:
-            return True
-        if mode == InteractionMode.PLAN:
-            return tool_name not in _PLAN_BLOCKED_TOOLS and not _is_mutating(tool_name)
-        if mode == InteractionMode.ASK:
-            return tool_name in _READ_ONLY_TOOLS or tool_name.startswith("search_")
-        return True
+    def allow_tool(
+        mode: InteractionMode | None,
+        tool_name: str,
+        profile_id: str | None = None,
+        *,
+        mode_policy: ModePolicyPayload | None = None,
+    ) -> bool:
+        if mode_policy is not None:
+            return allow_tool_pure(mode, tool_name, mode_policy=mode_policy)
+        if profile_id:
+            try:
+                from cys_core.infrastructure.catalog.profile_policy import get_profile_policy
+
+                return allow_tool_pure(mode, tool_name, mode_policy=get_profile_policy(profile_id).mode_policy)
+            except Exception:
+                pass
+        return allow_tool_pure(mode, tool_name, mode_policy=DEFAULT_MODE_POLICY)
 
     @staticmethod
     def allow_bus_message(mode: InteractionMode | None, message_type: str) -> bool:
@@ -60,7 +61,9 @@ class ModePolicy:
         return mode in (InteractionMode.AGENT, InteractionMode.DEBUG)
 
 
-def _is_mutating(tool_name: str) -> bool:
-    if tool_name in _MUTATING_TOOLS:
+def _is_mutating(tool_name: str, mutating: frozenset[str] | None = None) -> bool:
+    tools = mutating or MUTATING_TOOLS
+    if tool_name in tools:
         return True
-    return any(tool_name.startswith(prefix) for prefix in _MUTATING_TOOL_PREFIXES)
+    prefixes = ("run_", "write_", "spawn_", "execute_")
+    return any(tool_name.startswith(prefix) for prefix in prefixes)

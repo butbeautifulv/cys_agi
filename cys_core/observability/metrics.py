@@ -89,6 +89,14 @@ class CysMetrics:
             "Silent fallbacks from durable persistence to in-memory stores",
             ["component"],
         )
+        self.sgr_reasoning_steps_total = Counter(
+            "cys_sgr_reasoning_steps_total",
+            "Schema-guided reasoning steps recorded",
+        )
+        self.sgr_iron_parse_retries = Counter(
+            "cys_sgr_iron_parse_retries_total",
+            "Iron-mode JSON parse retries",
+        )
 
     def record_event_ingested(self, event_type: str) -> None:
         self.events_ingested.labels(event_type=event_type).inc()
@@ -147,7 +155,7 @@ class CysMetrics:
 
 metrics = CysMetrics()
 
-_TRUST_SCORES = {
+_DECLARED_TRUST_BY_LEVEL = {
     "untrusted": 0.25,
     "internal": 0.75,
     "privileged": 0.9,
@@ -155,11 +163,26 @@ _TRUST_SCORES = {
 }
 
 
+def declared_trust_score(entry) -> float:
+    if entry.quality.sample_size > 0:
+        return entry.quality.empirical_trust
+    return _DECLARED_TRUST_BY_LEVEL.get(entry.trust_level, 0.5)
+
+
 def seed_agent_trust_gauges() -> None:
     try:
-        from cys_core.registry.agents import get_agent_registry
+        from cys_core.infrastructure.catalog.hybrid_registry import get_agent_catalog
 
-        for defn in get_agent_registry().all():
-            metrics.set_agent_trust_score(defn.name, _TRUST_SCORES.get(defn.trust_level, 0.5))
+        catalog = get_agent_catalog()
+        for entry in catalog.list_agents(enabled_only=False):
+            metrics.set_agent_trust_score(entry.name, declared_trust_score(entry))
     except Exception:
-        return
+        try:
+            from cys_core.registry.agents import get_agent_registry
+
+            for defn in get_agent_registry().all():
+                metrics.set_agent_trust_score(
+                    defn.name, _DECLARED_TRUST_BY_LEVEL.get(defn.trust_level, 0.5)
+                )
+        except Exception:
+            return

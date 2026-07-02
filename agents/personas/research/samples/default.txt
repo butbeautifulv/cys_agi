@@ -1,0 +1,1 @@
+Investigate public references for the suspicious domain example.com and summarize reputation indicators.

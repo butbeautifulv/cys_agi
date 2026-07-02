@@ -6,6 +6,7 @@ from typing import Any
 from bootstrap.container import get_container
 from bootstrap.settings import settings
 from cys_core.application.use_cases.run_worker_job import RunWorkerJob
+from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID, resolve_profile_id
 from cys_core.domain.security.agent_bus import AgentTrustLevel, SecureAgentBus
 from cys_core.domain.security.factory import get_input_sanitizer, get_output_guardrails
 from cys_core.domain.workers.budgets import enrich_job_budget
@@ -34,10 +35,13 @@ _TRUST_MAP = {
 def build_agent_bus(
     registry: AgentRegistry | None = None,
     signing_key: bytes | None = None,
+    *,
+    profile_id: str = DEFAULT_PROFILE_ID,
 ) -> SecureAgentBus:
     key = signing_key if signing_key is not None else settings.bus_signing_key_bytes
     reg = registry or get_agent_registry()
-    bus = SecureAgentBus(signing_key=key)
+    policy = get_container().get_profile_policy_port().get_policy(profile_id)
+    bus = SecureAgentBus(signing_key=key, profile_id=profile_id, policy=policy)
     for defn in reg.all():
         bus.register_agent(
             defn.name,
@@ -115,11 +119,23 @@ class WorkerOrchestrator:
         run_id = job.job_id
         session_id = f"worker:{job.persona}:{run_id}"
         cid_token = bind_correlation_id(job.correlation_id or job.event_id)
+        from cys_core.infrastructure.catalog.hybrid_registry import get_agent_catalog
+
+        catalog_entry = get_agent_catalog().get_agent(budgeted.persona)
+        profile_id = resolve_profile_id(
+            payload=budgeted.payload,
+            catalog_entry=catalog_entry,
+        )
+        from cys_core.domain.workers.job_budget import configure_job_cost
+        from cys_core.infrastructure.catalog.profile_policy import get_cost_per_1k_tokens
+
+        configure_job_cost(get_cost_per_1k_tokens(profile_id), profile_id=profile_id)
         JobBudgetTracker.configure(
             session_id,
             max_tokens=budgeted.max_tokens,
             max_cost_usd=budgeted.max_cost_usd,
             max_tool_calls=budgeted.max_tool_calls,
+            profile_id=profile_id,
         )
         try:
             with metrics.track_worker_job(job.persona) as job_state:

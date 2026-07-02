@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import warnings
 from typing import Any
+
+_POLICY_GETTER_DEPRECATION = (
+    "Policy getters in runtime_config are deprecated; use "
+    "get_profile_policy_resolver() from cys_core.application.policy_resolver"
+)
 
 _stage: str = "dev"
 _manual_investigation_async: bool = True
@@ -22,8 +28,35 @@ _veneno_mcp_url: str = "http://localhost:8093/mcp"
 _veneno_mcp_enabled: bool = False
 _veneno_mcp_timeout: float = 60.0
 _planner_fallback_personas: str = "consultant"
-
-
+_egregore_one_tool_per_turn: bool = True
+_egregore_strict_plan: bool = False
+_keep_tool_results: int = 3
+_search_judge_llm: bool = False
+_self_consistency_n: int = 0
+_self_refine_max: int = 0
+_browser_enabled: bool = False
+_perplexity_api_key: str = ""
+_jina_api_key: str = ""
+_delegate_budget_fraction: float = 0.35
+_trace_critic_enabled: bool = True
+_trace_critic_threshold: float = 0.55
+_trace_critic_every_n_steps: int = 3
+_context_summary_max_messages: int = 40
+_task_hints_enabled: bool = True
+_web_search_provider: str = "duckduckgo"
+_serper_api_key: str = ""
+_run_attachments_dir: str = "/tmp/egregore-attachments"
+_context_summary_enabled: bool = True
+_trace_critic_rerun_max: int = 2
+_trace_critic_hitl_on_exhausted: bool = True
+_reasoning_model: str = ""
+_reasoning_temperature: float = 0.0
+_trace_critic_use_reasoning: bool = False
+_e2b_api_key: str = ""
+_python_sandbox_timeout: float = 30.0
+_use_sgr_reasoning: bool = True
+_sgr_default_mode: str = "off"
+_sgr_iron_max_retries: int = 3
 def configure_from_settings(settings: Any) -> None:
     global _stage, _manual_investigation_async, _use_conductor_for_events
     global _max_spawn_depth, _use_dynamic_catalog, _use_memory_fallback
@@ -31,6 +64,15 @@ def configure_from_settings(settings: Any) -> None:
     global _llm_model, _llm_api_key, _llm_base_url, _llm_temperature, _llm_request_timeout
     global _veil_mcp_url, _veil_mcp_enabled, _veil_mcp_timeout
     global _veneno_mcp_url, _veneno_mcp_enabled, _veneno_mcp_timeout, _planner_fallback_personas
+    global _egregore_one_tool_per_turn, _trace_critic_enabled, _trace_critic_threshold
+    global _trace_critic_every_n_steps, _context_summary_max_messages, _task_hints_enabled
+    global _web_search_provider, _serper_api_key, _run_attachments_dir
+    global _context_summary_enabled, _trace_critic_rerun_max, _trace_critic_hitl_on_exhausted
+    global _reasoning_model, _reasoning_temperature, _e2b_api_key, _python_sandbox_timeout
+    global _egregore_strict_plan, _keep_tool_results, _search_judge_llm, _self_consistency_n
+    global _self_refine_max, _browser_enabled, _perplexity_api_key, _jina_api_key, _delegate_budget_fraction
+    global _trace_critic_use_reasoning
+    global _use_sgr_reasoning, _sgr_default_mode, _sgr_iron_max_retries
     _stage = settings.stage
     _manual_investigation_async = settings.manual_investigation_async
     _use_conductor_for_events = settings.use_conductor_for_events
@@ -51,6 +93,35 @@ def configure_from_settings(settings: Any) -> None:
     _veneno_mcp_enabled = settings.veneno_mcp_enabled
     _veneno_mcp_timeout = settings.veneno_mcp_timeout
     _planner_fallback_personas = settings.planner_fallback_personas
+    _egregore_one_tool_per_turn = settings.egregore_one_tool_per_turn
+    _egregore_strict_plan = settings.egregore_strict_plan
+    _keep_tool_results = settings.keep_tool_results
+    _search_judge_llm = settings.search_judge_llm
+    _self_consistency_n = settings.self_consistency_n
+    _self_refine_max = settings.self_refine_max
+    _browser_enabled = settings.browser_enabled
+    _perplexity_api_key = settings.perplexity_api_key
+    _jina_api_key = settings.jina_api_key
+    _delegate_budget_fraction = settings.delegate_budget_fraction
+    _trace_critic_enabled = settings.trace_critic_enabled
+    _trace_critic_threshold = settings.trace_critic_threshold
+    _trace_critic_every_n_steps = settings.trace_critic_every_n_steps
+    _context_summary_max_messages = settings.context_summary_max_messages
+    _task_hints_enabled = settings.task_hints_enabled
+    _web_search_provider = settings.web_search_provider
+    _serper_api_key = settings.serper_api_key
+    _run_attachments_dir = settings.run_attachments_dir
+    _context_summary_enabled = settings.context_summary_enabled
+    _trace_critic_rerun_max = settings.trace_critic_rerun_max
+    _trace_critic_hitl_on_exhausted = settings.trace_critic_hitl_on_exhausted
+    _reasoning_model = settings.reasoning_model
+    _reasoning_temperature = settings.reasoning_temperature
+    _trace_critic_use_reasoning = settings.trace_critic_use_reasoning
+    _e2b_api_key = settings.e2b_api_key
+    _python_sandbox_timeout = settings.python_sandbox_timeout
+    _use_sgr_reasoning = settings.use_sgr_reasoning
+    _sgr_default_mode = settings.sgr_default_mode
+    _sgr_iron_max_retries = settings.sgr_iron_max_retries
 
 
 def get_stage() -> str:
@@ -65,8 +136,13 @@ def get_use_conductor_for_events() -> bool:
     return _use_conductor_for_events
 
 
-def get_max_spawn_depth() -> int:
-    return _max_spawn_depth
+def get_max_spawn_depth(profile_id: str | None = None) -> int:
+    warnings.warn(_POLICY_GETTER_DEPRECATION, DeprecationWarning, stacklevel=2)
+    from cys_core.application.policy_resolver import get_profile_policy_resolver
+    from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
+
+    pid = profile_id or DEFAULT_PROFILE_ID
+    return get_profile_policy_resolver().max_spawn_depth(pid)
 
 
 def get_use_dynamic_catalog() -> bool:
@@ -120,4 +196,140 @@ def get_veneno_mcp_timeout() -> float:
 
 
 def get_planner_fallback_personas() -> str:
+    warnings.warn(_POLICY_GETTER_DEPRECATION, DeprecationWarning, stacklevel=2)
     return _planner_fallback_personas
+
+
+def get_egregore_one_tool_per_turn() -> bool:
+    return _egregore_one_tool_per_turn
+
+
+def get_use_sgr_reasoning() -> bool:
+    return _use_sgr_reasoning
+
+
+def get_sgr_default_mode() -> str:
+    return _sgr_default_mode
+
+
+def get_sgr_iron_max_retries() -> int:
+    return _sgr_iron_max_retries
+
+
+def get_trace_critic_enabled() -> bool:
+    return _trace_critic_enabled
+
+
+def get_trace_critic_threshold() -> float:
+    warnings.warn(_POLICY_GETTER_DEPRECATION, DeprecationWarning, stacklevel=2)
+    from cys_core.application.policy_resolver import get_profile_policy_resolver
+    from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
+
+    return get_profile_policy_resolver().trace_critic_threshold(DEFAULT_PROFILE_ID)
+
+
+def get_trace_critic_every_n_steps() -> int:
+    warnings.warn(_POLICY_GETTER_DEPRECATION, DeprecationWarning, stacklevel=2)
+    from cys_core.application.policy_resolver import get_profile_policy_resolver
+    from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
+
+    return get_profile_policy_resolver().trace_critic_every_n(DEFAULT_PROFILE_ID)
+
+
+def get_context_summary_max_messages() -> int:
+    return _context_summary_max_messages
+
+
+def get_task_hints_enabled() -> bool:
+    return _task_hints_enabled
+
+
+def get_web_search_provider() -> str:
+    return _web_search_provider
+
+
+def get_serper_api_key() -> str:
+    return _serper_api_key
+
+
+def get_run_attachments_dir() -> str:
+    return _run_attachments_dir
+
+
+def get_context_summary_enabled() -> bool:
+    return _context_summary_enabled
+
+
+def get_trace_critic_rerun_max() -> int:
+    warnings.warn(_POLICY_GETTER_DEPRECATION, DeprecationWarning, stacklevel=2)
+    from cys_core.application.policy_resolver import get_profile_policy_resolver
+    from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
+
+    return get_profile_policy_resolver().trace_critic_rerun_max(DEFAULT_PROFILE_ID)
+
+
+def get_trace_critic_hitl_on_exhausted() -> bool:
+    return _trace_critic_hitl_on_exhausted
+
+
+def get_reasoning_llm_settings() -> dict[str, object]:
+    model = _reasoning_model or _llm_model
+    return {
+        "model": model,
+        "api_key": _llm_api_key,
+        "base_url": _llm_base_url,
+        "temperature": _reasoning_temperature,
+        "request_timeout": _llm_request_timeout,
+    }
+
+
+def get_trace_critic_use_reasoning() -> bool:
+    return _trace_critic_use_reasoning
+
+
+def get_e2b_api_key() -> str:
+    return _e2b_api_key
+
+
+def get_python_sandbox_timeout() -> float:
+    return _python_sandbox_timeout
+
+
+def get_egregore_strict_plan() -> bool:
+    return _egregore_strict_plan
+
+
+def get_keep_tool_results() -> int:
+    return _keep_tool_results
+
+
+def get_search_judge_llm() -> bool:
+    return _search_judge_llm
+
+
+def get_self_consistency_n() -> int:
+    return _self_consistency_n
+
+
+def get_self_refine_max() -> int:
+    return _self_refine_max
+
+
+def get_browser_enabled() -> bool:
+    return _browser_enabled
+
+
+def get_perplexity_api_key() -> str:
+    return _perplexity_api_key
+
+
+def get_jina_api_key() -> str:
+    return _jina_api_key
+
+
+def get_delegate_budget_fraction() -> float:
+    warnings.warn(_POLICY_GETTER_DEPRECATION, DeprecationWarning, stacklevel=2)
+    from cys_core.application.policy_resolver import get_profile_policy_resolver
+    from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
+
+    return get_profile_policy_resolver().delegate_budget_fraction(DEFAULT_PROFILE_ID)

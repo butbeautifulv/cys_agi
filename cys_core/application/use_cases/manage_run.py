@@ -34,12 +34,14 @@ class ManageRun:
         state_store: RunStateStorePort,
         catalog: AgentCatalogPort,
         todo_store: WorkTodoStorePort,
+        judge_backend=None,
     ) -> None:
         self._step = RunStep(
             runtime=runtime,
             state_store=state_store,
             catalog=catalog,
             todo_store=todo_store,
+            judge_backend=judge_backend,
         )
         self._state_store = state_store
 
@@ -97,4 +99,14 @@ class ManageRun:
             return {"run_context": ctx.model_dump(), "result": {"status": "rejected"}}
         ctx = ctx.model_copy(update={"mode": InteractionMode.AGENT})
         self.save_context(ctx)
+        state = self._state_store.get(ctx.tenant_id, ctx.context_id, ctx.kind.value)
+        if state is not None:
+            if approval.edited_plan is not None:
+                state.plan = approval.edited_plan
+            if state.plan and state.plan.todos:
+                from cys_core.infrastructure.runs.factory import get_work_todo_store
+
+                get_work_todo_store().replace_todos(ctx.tenant_id, ctx.context_id, state.plan.todos)
+                state.todos = state.plan.todos
+            self._state_store.upsert(state)
         return await self._step.execute(ctx, "execute approved plan")

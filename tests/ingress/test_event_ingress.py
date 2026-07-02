@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from cys_core.domain.events.plans import load_plan_routing
-from cys_core.domain.events.router import EventRouter
+from cys_core.application.routing.event_router import EventRouter
 from interfaces.ingress.router import EventIngress
 
 

@@ -1,24 +1,10 @@
 ---
 name: kill-chain-purple
-description: Kill chain mapping, ATT&CK coverage, and BAS validation
+description: Purple-team kill-chain mapping overlay for conductor orchestration
 ---
 
-# Kill Chain & Purple Team
+# Kill-chain purple overlay
 
-## When to use
-
-- Post-incident kill chain phase mapping
-- ATT&CK detection coverage gap analysis
-- Purple team exercise and BAS recommendations
-
-## Veil playbook anchors
-
-- `analyzing-cyber-kill-chain`
-- `implementing-mitre-attack-coverage-mapping`
-- `mapping-mitre-attack-techniques`
-- `performing-purple-team-exercise`
-- `implementing-continuous-security-validation-with-bas`
-
-## Output guidance
-
-Produce full attack_coverage_map across all 7 kill chain phases. List detection_gaps with technique IDs.
+- Align todos to kill-chain phases when assessing attack paths.
+- Spawn network + soc workers in parallel when scopes are independent.
+- Route compliance mapping after technical findings are confirmed.

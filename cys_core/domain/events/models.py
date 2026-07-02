@@ -61,3 +61,5 @@ class RoutingDecision(BaseModel):
     personas: list[str] = Field(default_factory=list)
     notify_control: bool = False
     reason: str = ""
+    matched_plan_id: str = ""
+    matched_rule_idx: int = -1

@@ -8,7 +8,7 @@ from bootstrap.settings import settings
 from cys_core.application.use_cases.plan_investigation import PlanInvestigation
 from cys_core.application.use_cases.route_and_enqueue import RouteAndEnqueueEvent
 from cys_core.domain.events.models import RoutingDecision, SecurityEvent
-from cys_core.domain.events.router import EventRouter
+from cys_core.application.routing.event_router import EventRouter
 from cys_core.infrastructure.kafka_events import publish_raw_event, publish_raw_event_sync
 from cys_core.observability.metrics import metrics
 from cys_core.registry.product_context import default_agents_root

@@ -14,6 +14,15 @@ class WorkerJobStatus(str, Enum):
     FAILED = "failed"
 
 
+class PersonaBudget(BaseModel):
+    max_tokens: int
+    max_cost_usd: float
+    max_tool_calls: int = 50
+
+
+DEFAULT_BUDGET = PersonaBudget(max_tokens=40_000, max_cost_usd=2.0)
+
+
 class WorkerJob(BaseModel):
     """Queued unit of work for an ephemeral worker."""
 

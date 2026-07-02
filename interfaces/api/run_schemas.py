@@ -5,16 +5,18 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
 from cys_core.domain.runs.models import InteractionMode, RunContext
 
 
 class RunCreateIn(BaseModel):
     goal: str
     mode: InteractionMode = InteractionMode.AGENT
-    profile_id: str = "cybersec-soc"
+    profile_id: str = DEFAULT_PROFILE_ID
     persona: str = "conductor"
     message: str = ""
     tenant_id: str = "default"
+    file_paths: list[str] = Field(default_factory=list)
 
 
 class RunStepIn(BaseModel):
@@ -30,7 +32,7 @@ class RunOut(BaseModel):
 class SessionCreateIn(BaseModel):
     goal: str
     mode: InteractionMode = InteractionMode.PLAN
-    profile_id: str = "cybersec-soc"
+    profile_id: str = DEFAULT_PROFILE_ID
     message: str = ""
     tenant_id: str = "default"
 

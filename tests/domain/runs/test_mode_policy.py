@@ -41,3 +41,13 @@ def test_is_mutating_helpers():
     assert ModePolicy.allow_tool(None, "spawn_worker") is True
     assert ModePolicy.allow_bus_message(None, "spawn_worker") is True
     assert ModePolicy.allow_tool(InteractionMode.AGENT, "spawn_worker") is True
+    assert ModePolicy.allow_tool(InteractionMode.PLAN, "delegate_research") is False
+    assert ModePolicy.allow_tool(InteractionMode.AGENT, "load_skill") is True
+    assert ModePolicy.allow_tool(InteractionMode.PLAN, "load_skill") is True
+
+
+@pytest.mark.unit
+def test_mode_policy_ask_allows_research_tools():
+    assert ModePolicy.allow_tool(InteractionMode.ASK, "web_search") is True
+    assert ModePolicy.allow_tool(InteractionMode.ASK, "read_document") is True
+    assert ModePolicy.allow_tool(InteractionMode.ASK, "reasoning_check") is True

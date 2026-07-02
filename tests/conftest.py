@@ -1,23 +1,120 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
+from cys_core.application.ports.profile_policy import ProfilePolicyPort
+from cys_core.domain.catalog.models import (
+    AgentCatalogEntry,
+    PersonaQuality,
+    ProfilePack,
+    ProfilePolicyPayload,
+    TraceCriticPolicy,
+)
+from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
+from cys_core.infrastructure.catalog.memory import InMemoryAgentCatalog
+from cys_core.infrastructure.catalog.profile_policy import ProfilePolicyLoader
 
-@pytest.fixture(autouse=True)
-def _wire_bootstrap_container():
-    """Ensure composition root registers loaders used by registry/catalog paths."""
-    from bootstrap.container import get_container
 
-    get_container()
+class FakePolicyPort(ProfilePolicyPort):
+    """Shared fake for ProfilePolicyPort contract tests."""
+
+    def __init__(self, policy: ProfilePolicyPayload) -> None:
+        self._policy = policy
+
+    def get_policy(self, profile_id: str) -> ProfilePolicyPayload:
+        return self._policy
+
+    def get_trust_floor(self, profile_id: str) -> float:
+        return self._policy.trust_floor
+
+    def get_bus_policy(self, profile_id: str) -> dict[str, list[str]]:
+        return self._policy.bus_policy
+
+    def get_escalation_paths(self, profile_id: str) -> set[tuple[str, str]]:
+        return set()
+
+    def get_hitl_threshold(self, profile_id: str) -> str:
+        return self._policy.hitl_auto_approve_threshold
+
+    def get_max_spawn_depth(self, profile_id: str) -> int:
+        return self._policy.max_spawn_depth
+
+    def get_cost_per_1k_tokens(self, profile_id: str) -> float:
+        return self._policy.cost_per_1k_tokens_usd
+
+    def get_notify_control_severities(self, profile_id: str) -> set[str]:
+        return set(self._policy.notify_control_severities)
+
+    def get_default_personas(self, profile_id: str) -> list[str] | None:
+        return None
 
 
-@pytest.fixture(autouse=True)
-def _disable_auth_by_default(monkeypatch):
-    from bootstrap.settings import get_settings
+def catalog_with_soc_profile(
+    *,
+    policy: ProfilePolicyPayload | None = None,
+    default_personas: list[str] | None = None,
+    agents: list[AgentCatalogEntry] | None = None,
+) -> InMemoryAgentCatalog:
+    catalog = InMemoryAgentCatalog()
+    personas = ["consultant", "soc"] if default_personas is None else default_personas
+    pack = ProfilePack(
+        id=DEFAULT_PROFILE_ID,
+        name="SOC",
+        policy=policy or ProfilePolicyPayload(),
+        default_personas=personas,
+    )
+    seed_agents = agents or [
+        AgentCatalogEntry(name="soc", role="worker", enabled=True, profile_id=DEFAULT_PROFILE_ID),
+        AgentCatalogEntry(name="consultant", role="worker", enabled=True, profile_id=DEFAULT_PROFILE_ID),
+        AgentCatalogEntry(
+            name="conductor",
+            role="orchestrator",
+            enabled=True,
+            profile_id=DEFAULT_PROFILE_ID,
+            capabilities=["research", "spawn_worker"],
+        ),
+    ]
+    catalog.seed(seed_agents, pack)
+    return catalog
 
-    monkeypatch.setenv("AUTH_ENABLED", "0")
-    monkeypatch.setenv("RBAC_ENABLED", "0")
-    get_settings.cache_clear()
-    from cys_core.infrastructure.auth import factory as auth_factory
 
-    auth_factory.get_token_verifier.cache_clear()
+def patch_catalog(monkeypatch, catalog: InMemoryAgentCatalog) -> None:
+    """Patch common catalog singleton targets to use an in-memory catalog."""
+    monkeypatch.setattr(
+        "cys_core.infrastructure.catalog.hybrid_registry.get_agent_catalog",
+        lambda: catalog,
+    )
+    loader = ProfilePolicyLoader(lambda: catalog)
+    monkeypatch.setattr(
+        "cys_core.infrastructure.catalog.profile_policy._loader",
+        lambda: loader,
+    )
+    from cys_core.application.policy_resolver import ProfilePolicyResolver, set_policy_resolver
+
+    set_policy_resolver(ProfilePolicyResolver(policy_loader=loader))
+
+
+class FakeRunRuntime:
+    """Minimal async runtime stub for application use-case tests."""
+
+    def __init__(self, *, responses: list[dict[str, Any]] | None = None) -> None:
+        self._responses = list(responses or [{"reply": "ok"}])
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    async def arun(self, name: str, user_input: str, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append((name, user_input, kwargs))
+        if self._responses:
+            return self._responses.pop(0)
+        return {"reply": "ok"}
+
+
+@pytest.fixture
+def fake_runtime() -> FakeRunRuntime:
+    return FakeRunRuntime()
+
+
+@pytest.fixture
+def soc_catalog() -> InMemoryAgentCatalog:
+    return catalog_with_soc_profile()

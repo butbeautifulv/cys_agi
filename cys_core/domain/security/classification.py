@@ -5,12 +5,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
-class DataClassification(str, Enum):
-    PUBLIC = "public"
-    INTERNAL = "internal"
-    CONFIDENTIAL = "confidential"
-    RESTRICTED = "restricted"
+from cys_core.domain.catalog.models import AgentCatalogEntry
+from cys_core.domain.policy.defaults import PERSONA_CLEARANCE
+from cys_core.domain.policy.pure import persona_clearance_pure
+from cys_core.domain.security.data_classification import DataClassification
 
 
 _CLASS_ORDER = [
@@ -20,21 +18,16 @@ _CLASS_ORDER = [
     DataClassification.RESTRICTED,
 ]
 
-_PERSONA_CLEARANCE: dict[str, DataClassification] = {
-    "soc": DataClassification.CONFIDENTIAL,
-    "network": DataClassification.CONFIDENTIAL,
-    "compliance": DataClassification.RESTRICTED,
-    "redteam": DataClassification.CONFIDENTIAL,
-    "intel": DataClassification.CONFIDENTIAL,
-    "hunter": DataClassification.CONFIDENTIAL,
-    "identity": DataClassification.CONFIDENTIAL,
-    "dfir": DataClassification.RESTRICTED,
-    "cloud": DataClassification.CONFIDENTIAL,
-    "purple": DataClassification.INTERNAL,
-    "consultant": DataClassification.INTERNAL,
-    "coordinator": DataClassification.RESTRICTED,
-    "critic": DataClassification.INTERNAL,
-}
+
+def persona_clearance_for(persona: str, entry: AgentCatalogEntry | None = None) -> DataClassification:
+    if entry is None:
+        try:
+            from cys_core.infrastructure.catalog.hybrid_registry import get_agent_catalog
+
+            entry = get_agent_catalog().get_agent(persona)
+        except Exception:
+            entry = None
+    return persona_clearance_pure(persona, entry)
 
 
 class SecureContextBuilder(BaseModel):
@@ -45,7 +38,7 @@ class SecureContextBuilder(BaseModel):
     roles: list[str] = Field(default_factory=list)
 
     def persona_clearance(self) -> DataClassification:
-        return _PERSONA_CLEARANCE.get(self.persona, DataClassification.INTERNAL)
+        return persona_clearance_for(self.persona)
 
     def classify_text(self, text: str) -> DataClassification:
         lower = text.lower()
@@ -79,3 +72,6 @@ class SecureContextBuilder(BaseModel):
         if not self.include_in_context(classification):
             return {**payload, "text": self.redact_for_output(text, classification), "redacted": True}
         return payload
+
+
+__all__ = ["PERSONA_CLEARANCE", "DataClassification", "SecureContextBuilder", "persona_clearance_for"]

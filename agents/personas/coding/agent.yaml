@@ -1,0 +1,21 @@
+name: coding
+description: Sandboxed Python analysis for logs, spreadsheets, and parsing tasks
+role: worker
+output_schema: ConsultantFinding
+capabilities:
+  - capability:code
+  - capability:documents
+tools:
+  - python_sandbox
+  - read_document
+  - parse_sast_report
+  - parse_netflow
+skills: []
+hitl_tools:
+  python_sandbox: true
+trust_level: internal
+bus_recipients:
+  - critic
+  - coordinator
+language: ru
+sample: samples/default.txt

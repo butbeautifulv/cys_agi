@@ -22,6 +22,9 @@ personas:
     - cloud
     - purple
     - conductor
+    - research
+    - gaia_solver
+    - coding
   control: [critic, coordinator]
 
 default_plan: incident-triage

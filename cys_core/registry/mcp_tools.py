@@ -24,10 +24,25 @@ class McpToolRegistry:
         *,
         use_gateway: bool | None = None,
         client: httpx.Client | None = None,
+        mcp_server_id: str | None = None,
+        profile_id: str = "cybersec-soc",
     ) -> None:
-        self.gateway_url = (gateway_url or settings.tool_gateway_url).rstrip("/")
+        self.gateway_url = (gateway_url or self._resolve_gateway_url(mcp_server_id, profile_id)).rstrip("/")
         self.use_gateway = settings.use_tool_gateway if use_gateway is None else use_gateway
         self._client = client
+
+    @staticmethod
+    def _resolve_gateway_url(mcp_server_id: str | None, profile_id: str) -> str:
+        if mcp_server_id:
+            try:
+                from cys_core.infrastructure.catalog.registry_factory import get_mcp_catalog
+
+                server = get_mcp_catalog().get_server(mcp_server_id, profile_id=profile_id)
+                if server is not None and server.enabled:
+                    return server.url
+            except Exception:
+                pass
+        return settings.tool_gateway_url
 
     def resolve(
         self,

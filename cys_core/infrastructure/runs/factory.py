@@ -7,6 +7,16 @@ from cys_core.infrastructure.runs.memory import InMemoryRunStateStore
 from cys_core.infrastructure.runs.todo_store import InMemoryWorkTodoStore
 
 _todo_store = InMemoryWorkTodoStore()
+_attachment_store = None
+
+
+def get_attachment_store():
+    global _attachment_store
+    if _attachment_store is None:
+        from cys_core.infrastructure.runs.attachment_store import FilesystemAttachmentStore
+
+        _attachment_store = FilesystemAttachmentStore()
+    return _attachment_store
 
 
 @lru_cache

@@ -10,6 +10,7 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command, interrupt
 
 from bootstrap.settings import Settings, get_settings
+from cys_core.application.ports.profile_policy import ProfilePolicyPort
 from cys_core.domain.security.risk import classify_tool_risk, parse_threshold
 from cys_core.domain.workers.job_budget import JobBudgetExceeded, JobBudgetTracker
 from cys_core.middleware.hitl_pause import (
@@ -30,19 +31,24 @@ class SecurityMiddleware(AgentMiddleware):
         session_id: str = "default",
         *,
         settings: Settings | None = None,
+        profile_id: str = "cybersec-soc",
+        policy_port: ProfilePolicyPort | None = None,
     ) -> None:
         super().__init__()
         cfg = settings or get_settings()
         self.agent_id = agent_id
         self.session_id = session_id
+        self.profile_id = profile_id
         self.stage = cfg.stage
-        self.monitor = AgentMonitor(agent_id)
+        self._policy_port = policy_port or _default_policy_port()
+        anomaly = self._policy_port.get_policy(profile_id).anomaly
+        self.monitor = AgentMonitor(agent_id, profile_id=profile_id, anomaly_policy=anomaly)
         self.rate_limiter = RedisRateLimiter()
-        self.auto_approve_threshold = parse_threshold(cfg.hitl_auto_approve_threshold)
+        self.auto_approve_threshold = parse_threshold(self._policy_port.get_hitl_threshold(profile_id))
 
     def _await_hitl_if_needed(self, request: ToolCallRequest) -> ToolMessage | None:
         tool_name = request.tool_call.get("name", "")
-        risk = classify_tool_risk(tool_name)
+        risk = classify_tool_risk(tool_name, self.profile_id)
         if risk <= self.auto_approve_threshold:
             return None
         if self.stage == "dev":
@@ -176,3 +182,9 @@ class SecurityMiddleware(AgentMiddleware):
                 {"tool": tool_name, "error": str(exc)},
             )
             raise
+
+
+def _default_policy_port() -> ProfilePolicyPort:
+    from bootstrap.container import get_container
+
+    return get_container().get_profile_policy_port()

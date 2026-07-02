@@ -69,7 +69,11 @@ class Settings(BaseSettings):
 
     hitl_auto_approve_threshold: str = Field(default="low", validation_alias="HITL_AUTO_APPROVE_THRESHOLD")
     max_tool_calls_per_minute: int = Field(default=30, validation_alias="MAX_TOOL_CALLS_PER_MINUTE")
-    trust_score_threshold: float = Field(default=0.5, validation_alias="TRUST_SCORE_THRESHOLD")
+    trust_score_threshold: float = Field(
+        default=0.5,
+        validation_alias="TRUST_SCORE_THRESHOLD",
+        description="Deprecated: use ProfilePack.policy.trust_floor per profile instead.",
+    )
     use_memory_fallback: bool = Field(default=False, validation_alias="USE_MEMORY_FALLBACK")
     persistence_connector: str = Field(default="auto", validation_alias="PERSISTENCE_CONNECTOR")
     job_store_connector: str = Field(default="auto", validation_alias="JOB_STORE_CONNECTOR")
@@ -86,6 +90,42 @@ class Settings(BaseSettings):
     critic_use_llm_judge: bool = Field(default=False, validation_alias="CRITIC_USE_LLM_JUDGE")
     use_conductor_for_events: bool = Field(default=False, validation_alias="USE_CONDUCTOR_FOR_EVENTS")
     max_spawn_depth: int = Field(default=5, validation_alias="MAX_SPAWN_DEPTH")
+    egregore_one_tool_per_turn: bool = Field(
+        default=True,
+        validation_alias="EGREGORE_ONE_TOOL_PER_TURN",
+        description="Limit agents to one tool call per model turn.",
+    )
+    egregore_strict_plan: bool = Field(default=False, validation_alias="EGREGORE_STRICT_PLAN")
+    keep_tool_results: int = Field(default=3, validation_alias="KEEP_TOOL_RESULTS")
+    search_judge_llm: bool = Field(default=False, validation_alias="SEARCH_JUDGE_LLM")
+    self_consistency_n: int = Field(default=0, validation_alias="SELF_CONSISTENCY_N")
+    self_refine_max: int = Field(default=0, validation_alias="SELF_REFINE_MAX")
+    browser_enabled: bool = Field(default=False, validation_alias="BROWSER_ENABLED")
+    perplexity_api_key: str = Field(default="", validation_alias="PERPLEXITY_API_KEY")
+    jina_api_key: str = Field(default="", validation_alias="JINA_API_KEY")
+    delegate_budget_fraction: float = Field(default=0.35, validation_alias="DELEGATE_BUDGET_FRACTION")
+    trace_critic_enabled: bool = Field(default=True, validation_alias="TRACE_CRITIC_ENABLED")
+    trace_critic_threshold: float = Field(default=0.55, validation_alias="TRACE_CRITIC_THRESHOLD")
+    trace_critic_every_n_steps: int = Field(default=3, validation_alias="TRACE_CRITIC_EVERY_N_STEPS")
+    context_summary_max_messages: int = Field(default=40, validation_alias="CONTEXT_SUMMARY_MAX_MESSAGES")
+    task_hints_enabled: bool = Field(default=True, validation_alias="TASK_HINTS_ENABLED")
+    web_search_provider: str = Field(default="duckduckgo", validation_alias="WEB_SEARCH_PROVIDER")
+    serper_api_key: str = Field(default="", validation_alias="SERPER_API_KEY")
+    run_attachments_dir: str = Field(default="/tmp/egregore-attachments", validation_alias="RUN_ATTACHMENTS_DIR")
+    context_summary_enabled: bool = Field(default=True, validation_alias="CONTEXT_SUMMARY_ENABLED")
+    trace_critic_rerun_max: int = Field(default=2, validation_alias="TRACE_CRITIC_RERUN_MAX")
+    trace_critic_hitl_on_exhausted: bool = Field(
+        default=True,
+        validation_alias="TRACE_CRITIC_HITL_ON_EXHAUSTED",
+    )
+    reasoning_model: str = Field(default="", validation_alias="REASONING_MODEL")
+    reasoning_temperature: float = Field(default=0.0, validation_alias="REASONING_TEMPERATURE")
+    trace_critic_use_reasoning: bool = Field(default=False, validation_alias="TRACE_CRITIC_USE_REASONING")
+    use_sgr_reasoning: bool = Field(default=True, validation_alias="USE_SGR_REASONING")
+    sgr_default_mode: str = Field(default="off", validation_alias="SGR_DEFAULT_MODE")
+    sgr_iron_max_retries: int = Field(default=3, validation_alias="SGR_IRON_MAX_RETRIES")
+    e2b_api_key: str = Field(default="", validation_alias="E2B_API_KEY")
+    python_sandbox_timeout: float = Field(default=30.0, validation_alias="PYTHON_SANDBOX_TIMEOUT")
 
     kafka_bootstrap_servers: str = Field(
         default="localhost:19092",

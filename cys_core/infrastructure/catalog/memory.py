@@ -30,10 +30,24 @@ class InMemoryAgentCatalog:
             existing = self._agents.get(entry.name)
             if existing is not None:
                 entry.version = existing.version + 1
+                entry.quality = existing.quality
             entry.source = CatalogSource.API
             self._agents[entry.name] = entry
             self._versions[entry.profile_id] = self._versions.get(entry.profile_id, 0) + 1
             return entry
+
+    def delete_agent(self, name: str, *, profile_id: str = "cybersec-soc") -> bool:
+        with self._lock:
+            entry = self._agents.get(name)
+            if entry is None or entry.profile_id != profile_id:
+                return False
+            entry.enabled = False
+            return True
+
+    def upsert_profile(self, profile: ProfilePack) -> ProfilePack:
+        with self._lock:
+            self._profiles[profile.id] = profile
+            return profile
 
     def list_profiles(self) -> list[ProfilePack]:
         with self._lock:
@@ -48,8 +62,19 @@ class InMemoryAgentCatalog:
                 agent_count=count,
             )
 
-    def seed(self, entries: list[AgentCatalogEntry], profile: ProfilePack) -> None:
+    def seed(
+        self,
+        entries: list[AgentCatalogEntry],
+        profile: ProfilePack,
+        *,
+        skills=None,
+        plans=None,
+        mcp_servers=None,
+    ) -> None:
         with self._lock:
             self._profiles[profile.id] = profile
             for entry in entries:
                 self._agents[entry.name] = entry
+        from cys_core.infrastructure.catalog.catalog_seed_writer import fan_out_secondary_catalogs
+
+        fan_out_secondary_catalogs(skills=skills, plans=plans, mcp_servers=mcp_servers)

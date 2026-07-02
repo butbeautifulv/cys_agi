@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+from typing import Any
+
+from cys_core.domain.catalog.models import ProfilePolicyPayload
+from cys_core.domain.policy.defaults import default_profile_policy_payload
+
+_resolver: ProfilePolicyResolver | None = None
+
+
+class ProfilePolicyResolver:
+    """Single read-path: catalog policy → env shim → domain defaults."""
+
+    def __init__(
+        self,
+        *,
+        policy_loader=None,
+        env_overrides: dict[str, Any] | None = None,
+    ) -> None:
+        self._loader = policy_loader
+        self._env = env_overrides or {}
+
+    def policy(self, profile_id: str) -> ProfilePolicyPayload:
+        if self._loader is not None:
+            try:
+                loaded = self._loader.get_policy(profile_id)
+                if loaded is not None:
+                    return loaded
+            except Exception:
+                pass
+        return default_profile_policy_payload()
+
+    def trace_critic_threshold(self, profile_id: str) -> float:
+        env = self._env.get("trace_critic_threshold")
+        if env is not None:
+            return float(env)
+        return self.policy(profile_id).trace_critic.threshold
+
+    def trace_critic_every_n(self, profile_id: str) -> int:
+        env = self._env.get("trace_critic_every_n_steps")
+        if env is not None:
+            return int(env)
+        return self.policy(profile_id).trace_critic.every_n_steps
+
+    def trace_critic_rerun_max(self, profile_id: str) -> int:
+        env = self._env.get("trace_critic_rerun_max")
+        if env is not None:
+            return int(env)
+        return self.policy(profile_id).trace_critic.rerun_max
+
+    def delegate_budget_fraction(self, profile_id: str) -> float:
+        env = self._env.get("delegate_budget_fraction")
+        if env is not None:
+            return float(env)
+        return self.policy(profile_id).delegate_budget_fraction
+
+    def max_spawn_depth(self, profile_id: str) -> int:
+        env = self._env.get("max_spawn_depth")
+        if env is not None:
+            return int(env)
+        if self._loader is not None:
+            try:
+                return self._loader.get_max_spawn_depth(profile_id)
+            except Exception:
+                pass
+        return self.policy(profile_id).max_spawn_depth
+
+    def planner_fallback_personas(self, profile_id: str, *, env_csv: str = "") -> list[str]:
+        if self._loader is not None:
+            try:
+                personas = self._loader.get_default_personas(profile_id)
+                if personas:
+                    return personas
+            except Exception:
+                pass
+        if env_csv.strip():
+            return [p.strip() for p in env_csv.split(",") if p.strip()]
+        return ["consultant"]
+
+    def sgr_policy(self, profile_id: str):
+        from cys_core.domain.reasoning.sgr_models import SgrPolicy
+
+        return self.policy(profile_id).sgr or SgrPolicy()
+
+
+def env_overrides_from_settings(settings: Any) -> dict[str, Any]:
+    return {
+        "trace_critic_threshold": settings.trace_critic_threshold,
+        "trace_critic_every_n_steps": settings.trace_critic_every_n_steps,
+        "trace_critic_rerun_max": settings.trace_critic_rerun_max,
+        "delegate_budget_fraction": settings.delegate_budget_fraction,
+        "max_spawn_depth": settings.max_spawn_depth,
+    }
+
+
+def set_policy_resolver(resolver: ProfilePolicyResolver) -> None:
+    global _resolver
+    _resolver = resolver
+
+
+def get_profile_policy_resolver() -> ProfilePolicyResolver:
+    if _resolver is not None:
+        return _resolver
+    return ProfilePolicyResolver()
+
+
+def configure_policy_resolver_from_settings(settings: Any, *, policy_loader=None) -> ProfilePolicyResolver:
+    """Build resolver from settings env shim + optional catalog loader; register as global."""
+    resolver = ProfilePolicyResolver(
+        policy_loader=policy_loader,
+        env_overrides=env_overrides_from_settings(settings),
+    )
+    set_policy_resolver(resolver)
+    return resolver

@@ -1,6 +1,7 @@
 name: conductor
 description: Meta-worker orchestrator for dynamic runs and subagent spawn
 role: worker
+reasoning_mode: sgr_hybrid
 output_schema: ConductorStepResult
 tools:
   - search_personas
@@ -9,6 +10,9 @@ tools:
   - update_todos
   - ask_user
   - spawn_worker
+  - reasoning_check
+  - extract_structured_output
+  - delegate_research
 skills:
   - kill-chain-purple
 hitl_tools:

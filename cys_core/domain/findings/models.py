@@ -161,6 +161,11 @@ class ConductorStepResult(BaseModel):
     spawn_requests: list[dict[str, Any]] = Field(default_factory=list)
     mode_recommendation: str = ""
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reasoning_steps: list[str] = Field(default_factory=list)
+    plan_status: str = ""
+    enough_data: bool = False
+    remaining_steps: list[str] = Field(default_factory=list)
+    task_completed: bool = False
 
 
 class CriticResult(BaseModel):

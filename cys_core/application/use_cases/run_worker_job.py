@@ -9,6 +9,7 @@ from cys_core.application.ports.bus import AgentTransportConnector
 from cys_core.application.ports.job_queue import JobQueueConnector
 from cys_core.application.ports.memory import InvestigationStateStore
 from cys_core.application.ports.sandbox import SandboxConnector
+from cys_core.domain.catalog.profile_id import resolve_profile_id
 from cys_core.domain.memory.services import MemoryReadService, MemoryWriteService
 from cys_core.domain.security.agent_bus import SecureAgentBus
 from cys_core.domain.security.exceptions import SecurityViolation
@@ -188,8 +189,17 @@ class RunWorkerJob:
                 if parsed:
                     result = parsed
 
+            result = await self._maybe_self_refine(job, sanitized, result)
+
             schema = self._schema_registry_get(defn.schema_name or "")
-            if schema and "error" not in result:
+            if isinstance(result, dict) and "error" not in result:
+                if isinstance(result.get("reasoning_steps"), list):
+                    result["sgr_metadata"] = {
+                        "reasoning_steps": result.get("reasoning_steps"),
+                        "plan_status": result.get("plan_status", ""),
+                        "enough_data": result.get("enough_data", False),
+                    }
+            if schema and isinstance(result, dict) and "error" not in result:
                 try:
                     validated = self.guardrails.validate_schema(result, schema)
                     result = validated.model_dump()
@@ -240,6 +250,18 @@ class RunWorkerJob:
 
             job.status = WorkerJobStatus.COMPLETED
             self.job_store.mark_completed(job.job_id)
+            try:
+                from bootstrap.settings import get_settings
+                from cys_core.application.persona_quality_hooks import record_job_completed
+
+                cost = float(job.payload.get("estimated_cost_usd", 0.0))
+                from cys_core.infrastructure.catalog.hybrid_registry import get_agent_catalog
+
+                catalog_entry = get_agent_catalog().get_agent(job.persona)
+                profile_id = resolve_profile_id(payload=job.payload, catalog_entry=catalog_entry)
+                record_job_completed(job.persona, success=True, cost_usd=cost, profile_id=profile_id)
+            except Exception:
+                pass
             return RunResult(
                 job_id=job.job_id,
                 persona=job.persona,
@@ -263,6 +285,17 @@ class RunWorkerJob:
         except Exception as exc:
             job_state["status"] = "error"
             self.bus.record_agent_failure(job.persona)
+            try:
+                from cys_core.application.persona_quality_hooks import record_bus_failure, record_job_completed
+
+                from cys_core.infrastructure.catalog.hybrid_registry import get_agent_catalog
+
+                catalog_entry = get_agent_catalog().get_agent(job.persona)
+                profile_id = resolve_profile_id(payload=job.payload, catalog_entry=catalog_entry)
+                record_bus_failure(job.persona, profile_id=profile_id)
+                record_job_completed(job.persona, success=False, profile_id=profile_id)
+            except Exception:
+                pass
             job.status = WorkerJobStatus.FAILED
             self.job_store.mark_failed(job.job_id)
             self._mark_persona_terminal(job)
@@ -272,6 +305,49 @@ class RunWorkerJob:
             return RunResult(job_id=job.job_id, persona=job.persona, success=False, error=str(exc))
         finally:
             await self.sandbox.adestroy(run_id)
+
+    async def _maybe_self_refine(self, job: WorkerJob, sanitized: str, result: dict[str, Any]) -> dict[str, Any]:
+        from cys_core.application.runtime_config import get_self_refine_max
+
+        max_rounds = get_self_refine_max()
+        if max_rounds <= 0 or not isinstance(result, dict) or "error" in result:
+            return result
+        draft = json.dumps(result, ensure_ascii=False)
+        rounds_done = 0
+        for round_idx in range(max_rounds):
+            rounds_done = round_idx + 1
+            critique_prompt = (
+                f"Critique this worker output for persona {job.persona}. "
+                f"Input:\n{sanitized[:2000]}\nOutput:\n{draft[:4000]}\n"
+                "Reply JSON: {\"revise\":true|false,\"notes\":\"...\"}"
+            )
+            revised = await self.runtime.arun(
+                job.persona,
+                critique_prompt,
+                session_id=f"refine:{job.job_id}:{round_idx}",
+                tenant_id=job.tenant_id,
+                investigation_id=job.correlation_id or job.event_id,
+            )
+            if not isinstance(revised, dict):
+                break
+            notes = str(revised.get("notes", revised.get("raw_response", "")))
+            if not notes:
+                break
+            revise_prompt = f"Revise your prior output addressing: {notes}\nPrior:\n{draft[:4000]}"
+            updated = await self.runtime.arun(
+                job.persona,
+                revise_prompt,
+                session_id=f"refine:{job.job_id}:{round_idx}:write",
+                tenant_id=job.tenant_id,
+                investigation_id=job.correlation_id or job.event_id,
+            )
+            if isinstance(updated, dict) and "error" not in updated:
+                result = updated
+                draft = json.dumps(result, ensure_ascii=False)
+            else:
+                break
+        result["self_refine_rounds"] = rounds_done
+        return result
 
     def _schema_registry_get(self, name: str) -> Any:
         from cys_core.registry.schemas import schema_registry

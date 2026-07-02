@@ -10,7 +10,16 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from cys_core.application.runtime_config import get_stage
+from cys_core.application.runtime_config import (
+    get_context_summary_enabled,
+    get_egregore_one_tool_per_turn,
+    get_keep_tool_results,
+    get_sgr_default_mode,
+    get_stage,
+    get_use_sgr_reasoning,
+)
+from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
+from cys_core.domain.security.profile_tools import filter_tools_for_profile
 from cys_core.llm import get_default_recursion_limit
 from cys_core.application.ports import ModelConnector, PersistenceContext
 from cys_core.domain.agents.policies import build_interrupt_on
@@ -21,10 +30,13 @@ from cys_core.domain.security.factory import get_input_sanitizer, get_output_gua
 from cys_core.domain.security.prompt_context import REFUSAL_MESSAGE
 from cys_core.domain.workers.job_budget import JobBudgetExceeded, JobBudgetTracker
 from cys_core.llm import get_model_connector
+from cys_core.middleware.context_summary_middleware import ContextSummaryMiddleware
 from cys_core.middleware.memory_context_middleware import MemoryContextMiddleware
+from cys_core.middleware.one_tool_middleware import OneToolPerTurnMiddleware
 from cys_core.middleware.prompt_context_middleware import PromptContextMiddleware
 from cys_core.middleware.scope_middleware import ScopeMiddleware
 from cys_core.middleware.security_middleware import SecurityMiddleware
+from cys_core.middleware.tool_coercion_middleware import ToolCoercionMiddleware
 from cys_core.observability.trace_attributes import merge_langchain_config
 from cys_core.observability.metrics import metrics
 from cys_core.registry.agents import AgentDefinition, AgentRegistry, get_agent_registry
@@ -125,6 +137,8 @@ class AgentRuntime:
         *,
         tenant_id: str = "default",
         investigation_id: str = "",
+        goal: str = "",
+        profile_id: str = DEFAULT_PROFILE_ID,
     ) -> list[Any]:
         middleware: list[Any] = [
             PromptContextMiddleware(
@@ -143,15 +157,46 @@ class AgentRuntime:
                     investigation_id=investigation_id,
                 )
             )
+        if get_context_summary_enabled():
+            from cys_core.infrastructure.context.factory import get_context_summarizer
+
+            middleware.append(
+                ContextSummaryMiddleware(
+                    get_context_summarizer(),
+                    goal=goal,
+                    keep_tool_results=get_keep_tool_results(),
+                )
+            )
         middleware.extend(
             [
                 ScopeMiddleware(allowed_tools=defn.allowed_tools),
-                SecurityMiddleware(agent_id=defn.name, session_id=session_id),
+                ToolCoercionMiddleware(),
+                SecurityMiddleware(agent_id=defn.name, session_id=session_id, profile_id=profile_id),
             ]
         )
         interrupt_on = build_interrupt_on(defn.hitl_tools)
         if interrupt_on:
             middleware.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
+
+        from cys_core.application.policy_resolver import get_profile_policy_resolver
+        from cys_core.application.reasoning.sgr_policy import resolve_sgr_policy
+        from cys_core.middleware.sgr_one_tool_middleware import SgrOneToolMiddleware
+        from cys_core.middleware.sgr_reasoning_middleware import SchemaGuidedReasoningMiddleware
+        from cys_core.middleware.sgr_session import SgrSessionState
+
+        profile_policy = get_profile_policy_resolver().policy(profile_id)
+        sgr = resolve_sgr_policy(
+            profile_policy=profile_policy,
+            agent=defn,
+            use_sgr_reasoning=get_use_sgr_reasoning(),
+            default_mode=get_sgr_default_mode(),  # type: ignore[arg-type]
+        )
+        if sgr.enabled:
+            session = SgrSessionState()
+            middleware.append(SchemaGuidedReasoningMiddleware(policy=sgr, session=session))
+            middleware.append(SgrOneToolMiddleware(session=session))
+        elif get_egregore_one_tool_per_turn():
+            middleware.append(OneToolPerTurnMiddleware())
         return middleware
 
     def create(
@@ -164,10 +209,17 @@ class AgentRuntime:
         extra_tools: list | None = None,
         tenant_id: str = "default",
         investigation_id: str = "",
+        profile_id: str = DEFAULT_PROFILE_ID,
+        goal: str = "",
     ):
-        tools = tool_registry.resolve(defn.tools)
+        tool_names = filter_tools_for_profile(defn.tools, profile_id)
+        tools = tool_registry.resolve(tool_names, profile_id=profile_id)
         if extra_tools:
             tools = [*tools, *extra_tools]
+        if defn.skills:
+            from cys_core.registry.skills_tool import make_load_skill_tool
+
+            tools.append(make_load_skill_tool(defn.skills, persona=defn.name, job_id=session_id))
 
         persistence = self._sync_persistence()
         checkpointer = persistence.checkpointer if use_checkpointer else None
@@ -183,6 +235,8 @@ class AgentRuntime:
                 session_id,
                 tenant_id=tenant_id,
                 investigation_id=investigation_id,
+                goal=goal or investigation_id,
+                profile_id=profile_id,
             ),
             response_format=schema,
             checkpointer=checkpointer,
@@ -201,13 +255,20 @@ class AgentRuntime:
         sandbox_tools: list | None = None,
         tenant_id: str = "default",
         investigation_id: str = "",
+        profile_id: str = DEFAULT_PROFILE_ID,
+        goal: str = "",
     ):
         if sandbox_tools is not None:
             tools = sandbox_tools
         else:
-            tools = tool_registry.resolve(defn.tools)
+            tool_names = filter_tools_for_profile(defn.tools, profile_id)
+            tools = tool_registry.resolve(tool_names, profile_id=profile_id)
             if extra_tools:
                 tools = [*tools, *extra_tools]
+            if defn.skills:
+                from cys_core.registry.skills_tool import make_load_skill_tool
+
+                tools.append(make_load_skill_tool(defn.skills, persona=defn.name, job_id=session_id))
 
         persistence = await self._async_persistence()
         checkpointer = persistence.checkpointer if use_checkpointer else None
@@ -223,6 +284,8 @@ class AgentRuntime:
                 session_id,
                 tenant_id=tenant_id,
                 investigation_id=investigation_id,
+                goal=goal or investigation_id,
+                profile_id=profile_id,
             ),
             response_format=schema,
             checkpointer=checkpointer,
@@ -272,6 +335,7 @@ class AgentRuntime:
         tenant_id: str = "default",
         investigation_id: str = "",
         sandbox_id: str = "",
+        profile_id: str = DEFAULT_PROFILE_ID,
     ) -> dict[str, Any]:
         defn = self.registry.get(name)
         sid = session_id or f"agent-{name}"
@@ -281,12 +345,15 @@ class AgentRuntime:
             entries_loaded = len(
                 self._memory_reader.query_investigation(tenant_id, inv_id, limit=10, requesting_tenant_id=tenant_id)
             )
+        profile_id = profile_id or DEFAULT_PROFILE_ID
         agent = await self.acreate(
             defn,
             session_id=sid,
             sandbox_tools=sandbox_tools,
             tenant_id=tenant_id,
             investigation_id=inv_id,
+            profile_id=profile_id,
+            goal=user_input,
         )
         schema = schema_registry.get(defn.schema_name)
         return await self._ainvoke(
@@ -338,6 +405,7 @@ class AgentRuntime:
             sanitized = self.sanitizer.sanitize(user_input, source="user")
         except SecurityViolation:
             return {"error": REFUSAL_MESSAGE}
+        JobBudgetTracker.record_tokens(session_id, JobBudgetTracker.estimate_tokens(sanitized))
         config = merge_langchain_config(
             {
                 "configurable": {"thread_id": session_id},

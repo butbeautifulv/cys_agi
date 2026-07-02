@@ -6,7 +6,11 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
-from cys_core.application.runtime_config import get_planner_fallback_personas
+from cys_core.application.policy_resolver import get_profile_policy_resolver
+from cys_core.application.runtime_config import get_planner_fallback_personas, get_use_dynamic_catalog
+from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
+from cys_core.infrastructure.catalog.hybrid_registry import get_agent_catalog
+from cys_core.registry.discovery_tools import rank_personas_by_quality
 from cys_core.application.ports.memory import InvestigationStateStore
 from cys_core.domain.events.models import SecurityEvent
 from cys_core.domain.memory.models import InvestigationState
@@ -18,6 +22,9 @@ class InvestigationPlan(BaseModel):
     personas: list[str] = Field(default_factory=list)
     sub_goals: dict[str, str] = Field(default_factory=dict)
     rationale: str = ""
+    depends_on: dict[str, list[str]] = Field(default_factory=dict)
+    reasoning_steps: list[str] = Field(default_factory=list)
+    plan_status: str = ""
 
 
 class PlannerRuntime(Protocol):
@@ -29,25 +36,12 @@ class PlannerRuntime(Protocol):
         session_id: str | None = None,
         tenant_id: str | None = None,
         investigation_id: str | None = None,
+        profile_id: str | None = None,
     ) -> dict[str, Any]: ...
 
 
 class PlanInvestigation:
     """LLM planner for manual.investigation events — produces ordered persona plan."""
-
-    AVAILABLE_PERSONAS = [
-        "soc",
-        "network",
-        "compliance",
-        "consultant",
-        "redteam",
-        "intel",
-        "hunter",
-        "identity",
-        "dfir",
-        "cloud",
-        "purple",
-    ]
 
     def __init__(
         self,
@@ -55,17 +49,24 @@ class PlanInvestigation:
         runtime: PlannerRuntime,
         investigation_store: InvestigationStateStore,
         planner_persona: str = "planner",
+        profile_id: str = "cybersec-soc",
     ) -> None:
         self.runtime = runtime
         self.investigation_store = investigation_store
         self.planner_persona = planner_persona
+        self.profile_id = profile_id
+
+    def _available_personas(self) -> list[str]:
+        from cys_core.application.resource_source import get_resource_source
+
+        return get_resource_source().list_worker_personas(profile_id=self.profile_id)
 
     @classmethod
-    def fallback_personas(cls) -> list[str]:
-        raw = get_planner_fallback_personas().strip()
-        if not raw:
-            return ["consultant"]
-        return [item.strip() for item in raw.split(",") if item.strip()]
+    def fallback_personas(cls, *, profile_id: str = DEFAULT_PROFILE_ID) -> list[str]:
+        return get_profile_policy_resolver().planner_fallback_personas(
+            profile_id,
+            env_csv=get_planner_fallback_personas(),
+        )
 
     def _investigation_id(self, event: SecurityEvent) -> str:
         return event.correlation_id or event.id
@@ -74,7 +75,7 @@ class PlanInvestigation:
         return str(event.payload.get("goal", event.payload.get("message", "Investigate security incident")))
 
     def _fallback_plan(self, goal: str, *, rationale: str) -> InvestigationPlan:
-        personas = self.fallback_personas()
+        personas = self.fallback_personas(profile_id=self.profile_id)
         return InvestigationPlan(
             personas=personas,
             sub_goals={persona: goal for persona in personas},
@@ -91,6 +92,8 @@ class PlanInvestigation:
                 personas=personas,
                 sub_goals={str(k): str(v) for k, v in sub_goals.items()},
                 rationale=str(result.get("rationale", "")),
+                reasoning_steps=[str(s) for s in result.get("reasoning_steps", []) if s],
+                plan_status=str(result.get("plan_status", "")),
             )
         raw = result.get("raw_response", "")
         if raw:
@@ -143,12 +146,13 @@ class PlanInvestigation:
             state.planner_error = ""
             self.investigation_store.upsert(state)
 
+        available = self._available_personas()
         prompt = json.dumps(
             {
                 "goal": goal,
                 "event_type": event.type,
                 "severity": event.severity,
-                "available_personas": self.AVAILABLE_PERSONAS,
+                "available_personas": available,
                 "instructions": (
                     "Return JSON with keys: personas (ordered list), sub_goals (map persona->task), rationale. "
                     "Use consultant alone for general IB advisory questions."
@@ -163,10 +167,18 @@ class PlanInvestigation:
                 session_id=f"planner:{investigation_id}",
                 tenant_id=event.tenant_id,
                 investigation_id=investigation_id,
+                profile_id=self.profile_id,
             )
             plan = self._parse_plan(result, goal)
             if not plan.personas:
                 plan = self._fallback_plan(goal, rationale="fallback_default_plan")
+            allowed = set(available)
+            plan.personas = [persona for persona in plan.personas if persona in allowed]
+            if not plan.personas:
+                plan = self._fallback_plan(goal, rationale="planner_invalid_personas_fallback")
+            plan.personas = rank_personas_by_quality(
+                plan.personas, catalog=get_agent_catalog(), profile_id=self.profile_id
+            )
             self._apply_plan_to_state(state, plan, status="ok")
         except Exception as exc:
             logger.warning("Planner failed for %s: %s", investigation_id, exc)
@@ -180,4 +192,5 @@ class PlanInvestigation:
             "planner_plan": plan.personas,
             "sub_goals": plan.sub_goals,
             "rationale": plan.rationale,
+            "depends_on": plan.depends_on,
         }

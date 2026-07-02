@@ -4,52 +4,39 @@ import hashlib
 import hmac
 import json
 import time
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from enum import Enum
+from enum import IntEnum
 from typing import Any
 
-from cys_core.domain.security.a2a import A2A_PROTOCOL_VERSION, A2AEnvelope, default_mtls_subject
+from cys_core.domain.catalog.models import ProfilePolicyPayload
+from cys_core.domain.catalog.profile_id import DEFAULT_PROFILE_ID
+from cys_core.domain.policy.defaults import DEFAULT_BUS_POLICY, ESCALATION_ONLY_PATHS, default_profile_policy_payload
+from cys_core.domain.security.a2a import A2A_PROTOCOL_VERSION, default_mtls_subject
 from cys_core.domain.security.exceptions import SecurityViolation
 from cys_core.domain.security.sanitizer import InputSanitizer
 
 
-class AgentTrustLevel(int, Enum):
+class AgentTrustLevel(IntEnum):
     UNTRUSTED = 0
     INTERNAL = 1
     PRIVILEGED = 2
     SYSTEM = 3
 
 
-ESCALATION_ONLY_PATHS: set[tuple[str, str]] = {
-    ("soc", "redteam"),
-    ("network", "redteam"),
-    ("intel", "redteam"),
-    ("hunter", "redteam"),
-}
-
-TRUST_MESSAGE_TYPES: dict[AgentTrustLevel, set[str]] = {
-    AgentTrustLevel.UNTRUSTED: {"finding", "query"},
-    AgentTrustLevel.INTERNAL: {"finding", "query", "correlation", "escalation", "spawn_worker", "spawn_result", "todo_update"},
-    AgentTrustLevel.PRIVILEGED: {"finding", "query", "correlation", "escalation", "spawn_worker", "spawn_result", "todo_update"},
-    AgentTrustLevel.SYSTEM: {"finding", "query", "correlation", "escalation", "control", "spawn_worker", "spawn_result", "todo_update"},
-}
-
-
-@dataclass
 class CircuitBreaker:
-    failure_threshold: int = 5
-    recovery_timeout: int = 60
-    failures: int = 0
-    opened_at: float | None = None
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60) -> None:
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.failures = 0
+        self.opened_at = 0.0
 
     @property
     def is_open(self) -> bool:
-        if self.opened_at is None:
+        if self.failures < self.failure_threshold:
             return False
-        if time.time() - self.opened_at > self.recovery_timeout:
-            self.opened_at = None
+        if time.time() - self.opened_at >= self.recovery_timeout:
             self.failures = 0
+            self.opened_at = 0.0
             return False
         return True
 
@@ -60,114 +47,149 @@ class CircuitBreaker:
 
     def record_success(self) -> None:
         self.failures = 0
-        self.opened_at = None
+        self.opened_at = 0.0
 
 
-@dataclass
 class SecureAgentBus:
-    """Secure inter-agent communication domain service."""
+    """Signed A2A bus with trust levels, escalation gates, and circuit breakers."""
 
-    signing_key: bytes
-    sanitizer: InputSanitizer = field(default_factory=InputSanitizer)
-    agent_registry: dict[str, dict[str, Any]] = field(default_factory=dict)
-    circuit_breakers: dict[str, CircuitBreaker] = field(default_factory=dict)
-    security_events: list[dict[str, Any]] = field(default_factory=list)
+    def __init__(
+        self,
+        signing_key: bytes | str = b"cys-agi-bus-key",
+        *,
+        profile_id: str = DEFAULT_PROFILE_ID,
+        policy: ProfilePolicyPayload | None = None,
+    ) -> None:
+        self.signing_key = signing_key if isinstance(signing_key, bytes) else signing_key.encode("utf-8")
+        self.profile_id = profile_id
+        self.agent_registry: dict[str, dict[str, Any]] = {}
+        self.circuit_breakers: dict[str, CircuitBreaker] = {}
+        self.security_events: list[dict[str, Any]] = []
+        self._sanitizer = InputSanitizer()
+        self._apply_policy(policy or default_profile_policy_payload())
+
+    def _apply_policy(self, policy: ProfilePolicyPayload) -> None:
+        self._breaker_threshold = policy.breaker_failure_threshold
+        self._breaker_reset = policy.breaker_reset_seconds
+        self._bus_policy = dict(policy.bus_policy) if policy.bus_policy else dict(DEFAULT_BUS_POLICY)
+        if policy.escalation_paths:
+            self._escalation_paths = {tuple(pair) for pair in policy.escalation_paths if len(pair) == 2}
+        else:
+            self._escalation_paths = set(ESCALATION_ONLY_PATHS)
 
     def register_agent(
         self,
         agent_id: str,
         trust_level: AgentTrustLevel,
         allowed_recipients: list[str],
-        mtls_subject: str | None = None,
     ) -> None:
         self.agent_registry[agent_id] = {
             "trust_level": trust_level,
-            "allowed_recipients": allowed_recipients,
-            "allowed_message_types": TRUST_MESSAGE_TYPES[trust_level],
-            "mtls_subject": mtls_subject or default_mtls_subject(agent_id),
+            "allowed_recipients": list(allowed_recipients),
+            "allowed_message_types": self._allowed_types(trust_level),
         }
-        self.circuit_breakers[agent_id] = CircuitBreaker()
+        self.circuit_breakers[agent_id] = CircuitBreaker(
+            failure_threshold=self._breaker_threshold,
+            recovery_timeout=self._breaker_reset,
+        )
+
+    def record_agent_failure(self, agent_id: str) -> None:
+        breaker = self.circuit_breakers.get(agent_id)
+        if breaker is not None:
+            breaker.record_failure()
 
     def send_message(
         self,
-        sender_id: str,
-        recipient_id: str,
+        sender: str,
+        recipient: str,
         message_type: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        sender = self.agent_registry.get(sender_id)
-        if not sender:
-            raise SecurityViolation(f"Unknown sender agent: {sender_id}")
+        sender_info = self.agent_registry.get(sender)
+        if sender_info is None:
+            raise SecurityViolation(f"Unknown sender agent: {sender}")
 
-        breaker = self.circuit_breakers[sender_id]
-        if breaker.is_open:
-            raise SecurityViolation(f"Agent {sender_id} is temporarily blocked (circuit breaker)")
+        breaker = self.circuit_breakers.get(sender)
+        if breaker is not None and breaker.is_open:
+            raise SecurityViolation(f"Agent {sender} circuit breaker open")
 
-        if recipient_id not in sender["allowed_recipients"]:
-            self._log_security_event(
-                "unauthorized_message_attempt",
-                {"sender": sender_id, "recipient": recipient_id},
-            )
-            raise SecurityViolation("Sender not authorized to message recipient")
+        if recipient not in sender_info["allowed_recipients"]:
+            self._log_event("unauthorized_message_attempt", {"sender": sender, "recipient": recipient})
+            raise SecurityViolation(f"Sender {sender} not authorized to message {recipient}")
 
-        if (sender_id, recipient_id) in ESCALATION_ONLY_PATHS:
+        if message_type not in sender_info["allowed_message_types"]:
+            raise SecurityViolation(f"Message type '{message_type}' not allowed for {sender}")
+
+        if (sender, recipient) in self._escalation_paths:
             if message_type != "escalation" or not payload.get("critic_approved"):
-                self._log_security_event(
+                self._log_event(
                     "blocked_privileged_escalation_path",
-                    {"sender": sender_id, "recipient": recipient_id, "message_type": message_type},
+                    {"sender": sender, "recipient": recipient, "type": message_type},
                 )
-                raise SecurityViolation(f"Direct path {sender_id}→{recipient_id} requires critic-approved escalation")
+                raise SecurityViolation("Privileged escalation requires critic-approved escalation message")
 
-        if message_type not in sender["allowed_message_types"]:
-            raise SecurityViolation(f"Message type '{message_type}' not allowed")
-
-        sanitized = self._sanitize_payload(payload, sender["trust_level"])
+        sanitized = self._sanitize_payload(payload, sender_info["trust_level"])
         timestamp = datetime.now(timezone.utc).isoformat()
-        signature = self._sign_message(sender_id, recipient_id, message_type, sanitized, timestamp)
-        breaker.record_success()
-        recipient = self.agent_registry.get(recipient_id, {})
-        envelope = A2AEnvelope(
-            sender=sender_id,
-            recipient=recipient_id,
-            type=message_type,
-            payload=sanitized,
-            timestamp=timestamp,
-            signature=signature,
-            mtls={
+        signature = self._sign_message(sender, recipient, message_type, sanitized, timestamp)
+        return {
+            "protocol": A2A_PROTOCOL_VERSION,
+            "sender": sender,
+            "recipient": recipient,
+            "type": message_type,
+            "payload": sanitized,
+            "timestamp": timestamp,
+            "signature": signature,
+            "mtls": {
                 "required": True,
-                "sender_subject": sender["mtls_subject"],
-                "recipient_subject": recipient.get("mtls_subject", default_mtls_subject(recipient_id)),
+                "sender_subject": default_mtls_subject(sender),
+                "recipient_subject": default_mtls_subject(recipient),
             },
-        )
-        return envelope.model_dump()
+        }
 
-    def receive_message(self, recipient_id: str, message: dict[str, Any]) -> dict[str, Any]:
+    def receive_message(self, recipient: str, message: dict[str, Any]) -> dict[str, Any]:
         if message.get("protocol") != A2A_PROTOCOL_VERSION:
-            raise SecurityViolation("Unsupported A2A protocol")
-        if not self._verify_signature(message):
+            raise SecurityViolation("Unsupported A2A protocol version")
+        if message.get("recipient") != recipient:
+            raise SecurityViolation("Message recipient mismatch")
+        expected = self._sign_message(
+            message["sender"],
+            message["recipient"],
+            message["type"],
+            message["payload"],
+            message["timestamp"],
+        )
+        if not hmac.compare_digest(message.get("signature", ""), expected):
             raise SecurityViolation("Invalid message signature")
         msg_time = datetime.fromisoformat(message["timestamp"])
         if datetime.now(timezone.utc) - msg_time > timedelta(minutes=5):
             raise SecurityViolation("Message expired (possible replay attack)")
-        if message["recipient"] != recipient_id:
-            raise SecurityViolation("Message recipient mismatch")
-        recipient = self.agent_registry.get(recipient_id, {})
-        expected_subject = recipient.get("mtls_subject", default_mtls_subject(recipient_id))
-        if message.get("mtls", {}).get("recipient_subject") != expected_subject:
+        mtls = message.get("mtls", {})
+        if mtls.get("recipient_subject") != default_mtls_subject(recipient):
             raise SecurityViolation("mTLS recipient identity mismatch")
         return message["payload"]
 
-    def record_agent_failure(self, agent_id: str) -> None:
-        if agent_id in self.circuit_breakers:
-            self.circuit_breakers[agent_id].record_failure()
+    def _allowed_types(self, trust_level: AgentTrustLevel) -> list[str]:
+        if trust_level <= AgentTrustLevel.UNTRUSTED:
+            return ["finding"]
+        if trust_level >= AgentTrustLevel.PRIVILEGED:
+            return ["finding", "escalation", "control", "report"]
+        return ["finding", "escalation"]
 
     def _sanitize_payload(self, payload: dict[str, Any], trust_level: AgentTrustLevel) -> dict[str, Any]:
+        cleaned = dict(payload)
         if trust_level < AgentTrustLevel.PRIVILEGED:
-            payload = {k: v for k, v in payload.items() if not str(k).startswith("_system")}
+            cleaned = {key: value for key, value in cleaned.items() if not str(key).startswith("_system")}
         result: dict[str, Any] = {}
-        for key, value in payload.items():
+        for key, value in cleaned.items():
             if isinstance(value, str):
-                result[key] = self.sanitizer.filter_untrusted(value, source="agent_bus")
+                result[key] = self._sanitizer.filter_untrusted(value, source="agent_bus")
+            elif isinstance(value, dict):
+                result[key] = self._sanitize_payload(value, trust_level)
+            elif isinstance(value, list):
+                result[key] = [
+                    self._sanitizer.filter_untrusted(item, source="agent_bus") if isinstance(item, str) else item
+                    for item in value
+                ]
             else:
                 result[key] = value
         return result
@@ -181,26 +203,11 @@ class SecureAgentBus:
         timestamp: str,
     ) -> str:
         body = json.dumps(
-            {
-                "sender": sender,
-                "recipient": recipient,
-                "type": message_type,
-                "payload": payload,
-                "timestamp": timestamp,
-            },
+            {"sender": sender, "recipient": recipient, "type": message_type, "payload": payload, "timestamp": timestamp},
             sort_keys=True,
+            separators=(",", ":"),
         )
-        return hmac.new(self.signing_key, body.encode(), hashlib.sha256).hexdigest()
+        return hmac.new(self.signing_key, body.encode("utf-8"), hashlib.sha256).hexdigest()
 
-    def _verify_signature(self, message: dict[str, Any]) -> bool:
-        expected = self._sign_message(
-            message["sender"],
-            message["recipient"],
-            message["type"],
-            message["payload"],
-            message["timestamp"],
-        )
-        return hmac.compare_digest(expected, message.get("signature", ""))
-
-    def _log_security_event(self, event_type: str, details: dict[str, Any]) -> None:
-        self.security_events.append({"type": event_type, "details": details, "ts": time.time()})
+    def _log_event(self, event_type: str, details: dict[str, Any]) -> None:
+        self.security_events.append({"type": event_type, "details": details, "ts": datetime.now(timezone.utc).isoformat()})
